@@ -68,11 +68,16 @@ Set `version` to the SDK you have (`dotnet --version`) or a floor at/below it. `
 
 ```bash
 cd api
-dotnet new sln --name Theodo.DotnetBoilerplate      # creates Theodo.DotnetBoilerplate.slnx
+dotnet new sln --name Theodo.DotnetBoilerplate      # solution file (see flags below)
 dotnet new web -n Theodo.DotnetBoilerplate -o src   # the single application project
-dotnet sln add src
-rm src/*.http                                        # drop template scaffolding you won't use
+dotnet sln add src                                  # register the project in the solution
 ```
+
+What each argument does:
+
+- `dotnet new sln --name Theodo.DotnetBoilerplate` — creates an (empty) solution; `--name` sets its filename, so you get `Theodo.DotnetBoilerplate.slnx` (`.slnx` is the .NET 10 default solution format).
+- `dotnet new web` — scaffolds the ASP.NET Core **empty web** template (just `Program.cs`, `appsettings*.json`, `Properties/launchSettings.json`, and the `.csproj` — no controllers, and **no `.http` file**; that ships only with the `webapi` template). `-n` / `--name` sets the project name, which becomes the assembly name, the root namespace, and the `.csproj` filename in one go; `-o` / `--output` is the folder to generate into (`src`).
+- `dotnet sln add src` — adds the project found under `src/` to the solution, so `dotnet build` / `test` / `run` at the solution level include it.
 
 One project holds the entire application; you'll grow `src/Features/` and `src/Common/` as folders inside it ([doc 03 §1](03-project-structure-and-conventions.md#1-repository-and-solution-layout)). The layer boundaries aren't drawn by project references — they're enforced by the architecture-test suite you add in phase 4.
 
