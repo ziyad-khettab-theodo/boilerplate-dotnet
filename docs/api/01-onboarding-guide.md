@@ -4,7 +4,7 @@ Goal: from clone to a running API and a mental model of the architecture, in und
 
 ## 1. Prerequisites
 
-- **.NET SDK 10** — the exact version pinned in `api/global.json` (`dotnet --version` must match its `rollForward` policy)
+- **.NET SDK 10** — the exact version pinned in `api/global.json` (`dotnet --version` must match its `rollForward` policy). Not installed yet? See [Hands-On Build Guide §1.0](12-hands-on-build-guide.md#10-install-the-toolchain).
 - **Docker** with Compose v2 (local PostgreSQL + observability stack)
 - Any editor; Rider / VS Code with C# Dev Kit / Visual Studio all work — formatting and style are tool-enforced, so editor choice is free
 

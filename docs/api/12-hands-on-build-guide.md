@@ -19,6 +19,28 @@ Phases: 1 Project essentials → 2 First end-to-end endpoint → 3 Testing it �
 
 > **Concept primer.** A **`.csproj`** is a project: one buildable unit producing one assembly (a `.dll`), declaring its package references in a few lines of XML. A **solution** (`.slnx`) lists the projects that belong together. The whole application is **one project**; `Features/` and `Common/` are folders inside it, and the hexagonal layers are enforced by architecture tests, not assembly boundaries (see [Architecture Overview §3](02-architecture-overview.md#3-dependency-direction-rules)). The **SDK** (`dotnet`) builds, runs, and tests everything from the CLI.
 
+### 1.0 Install the toolchain
+
+Everything below needs the **.NET 10 SDK** (`dotnet` — builds/runs/tests) and **Docker** with Compose v2 (local database + observability stack, from phase 6). Install both before touching a file; if `dotnet` isn't found, nothing else in this guide runs.
+
+**.NET 10 SDK:**
+
+- **macOS** — `brew install --cask dotnet-sdk`, or the official installer (Arm64 for Apple silicon, x64 for Intel) from `https://dotnet.microsoft.com/download/dotnet/10.0`.
+- **Linux** — your distro's package feed or the official `dotnet-install.sh` script (see the same download page).
+- **Windows** — `winget install Microsoft.DotNet.SDK.10` or the installer.
+
+**Docker:** Docker Desktop (macOS/Windows) or Docker Engine + Compose v2 (Linux).
+
+**Verify:**
+
+```bash
+dotnet --version      # → 10.x.x
+dotnet --list-sdks    # confirms a 10.x SDK is present
+docker --version && docker compose version
+```
+
+Gotcha: if `dotnet` reports *command not found* right after the official installer, it's a `PATH` issue — the installer puts the SDK at `/usr/local/share/dotnet` (macOS); open a new shell, or ensure that directory is on `PATH`. Homebrew links `dotnet` onto `PATH` for you. The exact patch version doesn't matter yet — `global.json` (step 1.2) pins it next, and any installed 10.x that satisfies the pin is fine.
+
 ### 1.1 Repo hygiene
 
 `.gitattributes` (repo root) — normalize line endings to LF; Windows scripts keep CRLF:
@@ -35,22 +57,27 @@ Phases: 1 Project essentials → 2 First end-to-end endpoint → 3 Testing it �
 
 ```json
 {
-  "sdk": { "version": "10.0.100", "rollForward": "latestFeature" },
+  "sdk": { "version": "10.0.300", "rollForward": "latestFeature" },
   "test": { "runner": "Microsoft.Testing.Platform" }
 }
 ```
 
-(Set `version` to your `dotnet --version` major; `rollForward` accepts newer feature bands so teammates aren't blocked by patch drift.)
+Set `version` to the SDK you have (`dotnet --version`) or a floor at/below it. `rollForward: latestFeature` then accepts that feature band **or any higher one**, so a machine with `10.0.301` — or a newer `10.0.4xx` later — satisfies the pin without editing this file; it only fails if no installed 10.x SDK reaches the floor. (Example: floor `10.0.300` + installed `10.0.301` → resolves to `10.0.301`.)
 
 ### 1.3 Solution and the application project
 
 ```bash
 cd api
-dotnet new sln --name Theodo.DotnetBoilerplate      # creates Theodo.DotnetBoilerplate.slnx
+dotnet new sln --name Theodo.DotnetBoilerplate      # solution file (see flags below)
 dotnet new web -n Theodo.DotnetBoilerplate -o src   # the single application project
-dotnet sln add src
-rm src/*.http                                        # drop template scaffolding you won't use
+dotnet sln add src                                  # register the project in the solution
 ```
+
+What each argument does:
+
+- `dotnet new sln --name Theodo.DotnetBoilerplate` — creates an (empty) solution; `--name` sets its filename, so you get `Theodo.DotnetBoilerplate.slnx` (`.slnx` is the .NET 10 default solution format).
+- `dotnet new web` — scaffolds the ASP.NET Core **empty web** template (just `Program.cs`, `appsettings*.json`, `Properties/launchSettings.json`, and the `.csproj` — no controllers, and **no `.http` file**; that ships only with the `webapi` template). `-n` / `--name` sets the project name, which becomes the assembly name, the root namespace, and the `.csproj` filename in one go; `-o` / `--output` is the folder to generate into (`src`).
+- `dotnet sln add src` — adds the project found under `src/` to the solution, so `dotnet build` / `test` / `run` at the solution level include it.
 
 One project holds the entire application; you'll grow `src/Features/` and `src/Common/` as folders inside it ([doc 03 §1](03-project-structure-and-conventions.md#1-repository-and-solution-layout)). The layer boundaries aren't drawn by project references — they're enforced by the architecture-test suite you add in phase 4.
 
