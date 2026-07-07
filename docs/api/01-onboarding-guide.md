@@ -14,8 +14,8 @@ Goal: from clone to a running API and a mental model of the architecture, in und
 ./init                      # renders .env, restores pinned tools, installs git hooks (idempotent)
 docker compose up -d        # PostgreSQL + Grafana observability stack
 cd api
-dotnet ef database update --project src/Infrastructure   # apply migrations locally
-dotnet run --project src/Api                             # http://localhost:8080/api
+dotnet ef database update --project src   # apply migrations locally
+dotnet run --project src                  # http://localhost:8080/api
 ```
 
 Sanity checks:
@@ -30,10 +30,10 @@ Before writing code, walk one request through the layers **in dependency order**
 
 | Step | File |
 |---|---|
-| 1. Endpoint (driving adapter) | `src/Api/Features/Users/Endpoints/GetUsers/GetUsersEndpoint.cs` |
-| 2. Use case (domain) | `src/Domain/Features/Users/UseCases/GetUsers/GetUsersUseCase.cs` |
-| 3. Port (domain contract) | `src/Domain/Features/Users/Ports/IUserRepositoryPort.cs` |
-| 4. Adapter (driven, infrastructure) | `src/Infrastructure/Adapters/UserRepository.cs` |
+| 1. Endpoint (driving adapter) | `src/Features/Users/Api/Endpoints/GetUsers/GetUsersEndpoint.cs` |
+| 2. Use case (domain) | `src/Features/Users/Domain/UseCases/GetUsers/GetUsersUseCase.cs` |
+| 3. Port (domain contract) | `src/Features/Users/Domain/Ports/IUserRepositoryPort.cs` |
+| 4. Adapter (driven, infrastructure) | `src/Common/Infra/Adapters/UserRepository.cs` |
 | 5. Response mapping | `GetUsersEndpointResponse.cs` next to the endpoint |
 
 Verify while tracing: business decisions live in the domain classes; the endpoint and the repository only **translate and perform I/O**. If you find a business branch in step 1, 4, or 5, you've found a bug — see [Architecture Overview §4](02-architecture-overview.md#4-what-belongs-in-the-domain-vs-in-adapters).

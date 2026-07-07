@@ -69,7 +69,7 @@ Exceptions become responses through an ordered handler chain (`IExceptionHandler
 | Order | Handler | Maps |
 |---|---|---|
 | 1 | framework handler | validation failures, malformed bodies, authN/authZ failures → 400/401/403 with stable codes |
-| 2 | feature handlers (`Features/<F>/ExceptionHandlers/`) | each feature's domain exceptions → status + `errors.*` code |
+| 2 | feature handlers (`Features/<subdomain>/ExceptionHandlers/`) | each feature's domain exceptions → status + `errors.*` code |
 | 3 | catch-all handler | anything unmapped → 500 `errors.internal`, full exception logged, **no internals in the body** |
 
 Feature handlers are **mapping tables, not logic**: exception type → (status, code). No business decisions, no repository calls, no event publishing inside handlers. Every mapped exception must appear in the feature's handler integration tests (enforced by `ExceptionHandlerRulesUnitTests`).
@@ -151,6 +151,33 @@ Before first production deploy (also part of the [bootstrap checklist](04-projec
 - [ ] Management credentials set; management endpoints unreachable from the public edge where possible
 - [ ] OpenAPI exposure disabled
 - [ ] OTLP export configured; error tracking wired; burn-rate alerts tested
+
+### 9.1 Example Production Overrides
+
+Split by sensitivity. **Non-secret** production toggles live in `appsettings.Production.json` (committed, loaded when `ASPNETCORE_ENVIRONMENT=Production`):
+
+```json
+{
+  "Security": {
+    "Https": true,
+    "Jwt": { "Issuer": "https://auth.example.com" },
+    "Cors": { "AllowedOrigins": [ "https://app.example.com", "https://admin.example.com" ] }
+  },
+  "OpenApi": { "Enabled": false }
+}
+```
+
+**Secrets never go in a config file** — even as placeholders. They arrive as environment variables from the platform secret store, overriding config keys via the `__` separator (env vars win over `appsettings*.json`):
+
+```bash
+Security__Jwt__Secret=<from secret manager>
+Management__User=<from secret manager>
+Management__Password=<from secret manager>
+ConnectionStrings__Database=<from secret manager>
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example.com
+```
+
+Startup validation (`ValidateOnStart`) fails fast if any required key is absent from both layers — so a missing secret is a crash at boot, not a runtime surprise (see [§8.3](#83-openapi-and-serialization) and the options wiring in [Hands-On Build Guide §5.3](12-hands-on-build-guide.md#53-strict-json--validated-options)).
 
 ## 10. Do / Do Not
 

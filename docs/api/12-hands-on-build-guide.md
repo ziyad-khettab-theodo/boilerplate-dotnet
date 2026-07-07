@@ -1,4 +1,4 @@
-    # Hands-On Build Guide
+# Hands-On Build Guide
 
 This guide constructs the entire platform **by hand**: every file, what each line does, how to verify it works, and how to break it on purpose to watch the gate fire. Each step cites the normative doc it implements — this guide is the *how*, those docs are the *law*.
 
@@ -17,7 +17,7 @@ Phases: 1 Project essentials → 2 First end-to-end endpoint → 3 Testing it �
 
 ## Phase 1 — Project Essentials
 
-> **Concept primer.** A **`.csproj`** is a project: one buildable unit producing one assembly (a `.dll`), declaring its package and project references in a few lines of XML. A **solution** (`.slnx`) is just the list of projects that belong together. The **SDK** (`dotnet`) builds, runs, and tests everything from the CLI.
+> **Concept primer.** A **`.csproj`** is a project: one buildable unit producing one assembly (a `.dll`), declaring its package references in a few lines of XML. A **solution** (`.slnx`) lists the projects that belong together. The whole application is **one project**; `Features/` and `Common/` are folders inside it, and the hexagonal layers are enforced by architecture tests, not assembly boundaries (see [Architecture Overview §3](02-architecture-overview.md#3-dependency-direction-rules)). The **SDK** (`dotnet`) builds, runs, and tests everything from the CLI.
 
 ### 1.1 Repo hygiene
 
@@ -42,25 +42,19 @@ Phases: 1 Project essentials → 2 First end-to-end endpoint → 3 Testing it �
 
 (Set `version` to your `dotnet --version` major; `rollForward` accepts newer feature bands so teammates aren't blocked by patch drift.)
 
-### 1.3 Solution and the three projects
+### 1.3 Solution and the application project
 
 ```bash
 cd api
-dotnet new sln --name DotnetBoilerplate          # creates DotnetBoilerplate.slnx
-dotnet new classlib -n Theodo.DotnetBoilerplate.Domain -o src/Domain
-dotnet new classlib -n Theodo.DotnetBoilerplate.Infrastructure -o src/Infrastructure
-dotnet new web      -n Theodo.DotnetBoilerplate.Api -o src/Api
-dotnet sln add src/Domain src/Infrastructure src/Api
-dotnet add src/Infrastructure reference src/Domain
-dotnet add src/Api reference src/Domain src/Infrastructure
-rm src/*/Class1.cs
+dotnet new sln --name Theodo.DotnetBoilerplate      # creates Theodo.DotnetBoilerplate.slnx
+dotnet new web -n Theodo.DotnetBoilerplate -o src   # the single application project
+dotnet sln add src
+rm src/*.http                                        # drop template scaffolding you won't use
 ```
 
-The reference commands *are* the architecture ([Architecture Overview §3.1](02-architecture-overview.md#31-compile-time-tier-project-references)): `Api → Domain + Infrastructure`, `Infrastructure → Domain`, `Domain → nothing`. Note what's absent — no command ever gives `Domain` a reference.
+One project holds the entire application; you'll grow `src/Features/` and `src/Common/` as folders inside it ([doc 03 §1](03-project-structure-and-conventions.md#1-repository-and-solution-layout)). The layer boundaries aren't drawn by project references — they're enforced by the architecture-test suite you add in phase 4.
 
-**Verify:** `dotnet build` succeeds; `dotnet run --project src/Api --urls http://localhost:8080` serves the template's hello-world.
-
-**Break it on purpose:** try `dotnet add src/Domain reference src/Infrastructure` → the CLI refuses: *circular reference*. The dependency direction is physically one-way.
+**Verify:** `dotnet build` succeeds; `dotnet run --project src --urls http://localhost:8080` serves the template's hello-world.
 
 ---
 
@@ -70,16 +64,16 @@ Goal: `GET /api/users` flowing **endpoint → use case → port → adapter**, w
 
 ### 2.1 Domain: the hexagon's first cells
 
-`Domain` gets its **only** allowed package (immutable collections are part of the domain allowlist):
+The domain's one allowed package (immutable collections are part of the domain allowlist):
 
 ```bash
-dotnet add src/Domain package System.Collections.Immutable
+dotnet add src package System.Collections.Immutable
 ```
 
-`src/Domain/Common/ValueObjects/Username.cs` — a value object: validated at construction, impossible to hold an invalid value ([doc 03 §2.4](03-project-structure-and-conventions.md#24-entities-vs-value-objects)):
+`src/Common/Domain/ValueObjects/Username.cs` — a value object: validated at construction, impossible to hold an invalid value ([doc 03 §2.4](03-project-structure-and-conventions.md#24-entities-vs-value-objects)):
 
 ```csharp
-namespace Theodo.DotnetBoilerplate.Domain.Common.ValueObjects;
+namespace Theodo.DotnetBoilerplate.Common.Domain.ValueObjects;
 
 public sealed record Username
 {
@@ -94,10 +88,10 @@ public sealed record Username
 }
 ```
 
-`src/Domain/Features/Users/Entities/User.cs` — an entity: identity + data, as an immutable record:
+`src/Features/Users/Domain/Entities/User.cs` — an entity: identity + data, as an immutable record:
 
 ```csharp
-namespace Theodo.DotnetBoilerplate.Domain.Features.Users.Entities;
+namespace Theodo.DotnetBoilerplate.Features.Users.Domain.Entities;
 
 public sealed record User
 {
@@ -106,10 +100,10 @@ public sealed record User
 }
 ```
 
-`src/Domain/Features/Users/Ports/IUserRepositoryPort.cs` — the domain's demand on the outside world:
+`src/Features/Users/Domain/Ports/IUserRepositoryPort.cs` — the domain's demand on the outside world:
 
 ```csharp
-namespace Theodo.DotnetBoilerplate.Domain.Features.Users.Ports;
+namespace Theodo.DotnetBoilerplate.Features.Users.Domain.Ports;
 
 public interface IUserRepositoryPort
 {
@@ -117,7 +111,7 @@ public interface IUserRepositoryPort
 }
 ```
 
-`src/Domain/Features/Users/UseCases/GetUsers/GetUsersQuery.cs` and `GetUsersUseCase.cs` — one operation, one class, one `Handle` ([doc 02 §5](02-architecture-overview.md#5-use-case-contract)):
+`src/Features/Users/Domain/UseCases/GetUsers/GetUsersQuery.cs` and `GetUsersUseCase.cs` — one operation, one class, one `Handle` ([doc 02 §5](02-architecture-overview.md#5-use-case-contract)):
 
 ```csharp
 public sealed record GetUsersQuery;
@@ -133,10 +127,10 @@ public class GetUsersUseCase(IUserRepositoryPort userRepository)
 
 ### 2.2 Infrastructure: the first adapter
 
-`src/Infrastructure/Adapters/InMemoryUserRepository.cs`:
+Adapters are centralized under `Common/Infra` ([doc 03 §4.1](03-project-structure-and-conventions.md#41-infrastructure-is-centralized)). `src/Common/Infra/Adapters/InMemoryUserRepository.cs`:
 
 ```csharp
-namespace Theodo.DotnetBoilerplate.Infrastructure.Adapters;
+namespace Theodo.DotnetBoilerplate.Common.Infra.Adapters;
 
 public class InMemoryUserRepository : IUserRepositoryPort
 {
@@ -152,10 +146,10 @@ public class InMemoryUserRepository : IUserRepositoryPort
 
 ### 2.3 Api: the REPR convention and the endpoint
 
-`src/Api/Common/Endpoints/IEndpoint.cs` — the one-interface convention behind REPR ([doc 02 §6](02-architecture-overview.md#6-endpoint-contract-repr)):
+`src/Common/Api/Endpoints/IEndpoint.cs` — the one-interface convention behind REPR ([doc 02 §6](02-architecture-overview.md#6-endpoint-contract-repr)):
 
 ```csharp
-namespace Theodo.DotnetBoilerplate.Api.Common.Endpoints;
+namespace Theodo.DotnetBoilerplate.Common.Api.Endpoints;
 
 public interface IEndpoint
 {
@@ -163,7 +157,7 @@ public interface IEndpoint
 }
 ```
 
-`src/Api/Common/Endpoints/EndpointDiscovery.cs` — find every `IEndpoint` in this assembly and call its `Map` once at startup:
+`src/Common/Api/Endpoints/EndpointDiscovery.cs` — find every `IEndpoint` in the assembly and call its `Map` once at startup:
 
 ```csharp
 public static class EndpointDiscovery
@@ -178,14 +172,14 @@ public static class EndpointDiscovery
 }
 ```
 
-`src/Api/Common/ServiceRegistration/UseCaseRegistration.cs` — use cases register by naming convention so the domain never carries DI attributes ([doc 02 §8](02-architecture-overview.md#8-dependency-injection-wiring-strategy)):
+`src/Common/Api/ServiceRegistration/UseCaseRegistration.cs` — use cases register by naming convention so the domain never carries DI attributes ([doc 02 §8](02-architecture-overview.md#8-dependency-injection-wiring-strategy)):
 
 ```csharp
 public static class UseCaseRegistration
 {
     public static IServiceCollection AddUseCases(this IServiceCollection services)
     {
-        var useCases = typeof(Domain.Common.ValueObjects.Username).Assembly.GetTypes()
+        var useCases = typeof(IEndpoint).Assembly.GetTypes()
             .Where(t => t is { IsClass: true, IsAbstract: false } && t.Name.EndsWith("UseCase"));
         foreach (var useCase in useCases) services.AddScoped(useCase);
         return services;
@@ -200,7 +194,7 @@ public static IServiceCollection AddAdapters(this IServiceCollection services) =
     services.AddSingleton<IUserRepositoryPort, InMemoryUserRepository>();
 ```
 
-`src/Api/Features/Users/Endpoints/GetUsers/GetUsersEndpoint.cs` + `GetUsersEndpointResponse.cs` — a GET has no body, so this endpoint has no request record; the response record is still endpoint-local and mapped explicitly:
+`src/Features/Users/Api/Endpoints/GetUsers/GetUsersEndpoint.cs` + `GetUsersEndpointResponse.cs` — a GET has no body, so this endpoint has no request record; the response record is still endpoint-local and mapped explicitly:
 
 ```csharp
 public class GetUsersEndpoint : IEndpoint
@@ -225,7 +219,7 @@ public sealed record GetUsersEndpointResponse
 }
 ```
 
-`src/Api/Program.cs` — deliberately minimal for now; each later phase adds one block:
+`src/Program.cs` — deliberately minimal for now; each later phase adds one block:
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
@@ -246,7 +240,7 @@ public partial class Program;   // exposes Program to integration tests (phase 3
 **Verify:**
 
 ```bash
-dotnet run --project src/Api --urls http://localhost:8080
+dotnet run --project src --urls http://localhost:8080
 curl http://localhost:8080/api/users     # → 200, JSON array with ada and linus
 ```
 
@@ -256,27 +250,27 @@ curl http://localhost:8080/api/users     # → 200, JSON array with ada and linu
 
 ## Phase 3 — Testing the Slice
 
-> **Concept primer.** Test projects are ordinary projects referencing a test framework. Ours split by **boot cost** ([doc 05 §2](05-testing-platform.md#2-test-categories-and-naming)): unit tests construct plain objects; integration tests boot an in-memory HTTP host (`WebApplicationFactory`) and exercise the real pipeline.
+> **Concept primer.** Test projects are separate projects (separate assemblies) that reference the application project and a test framework. Ours split by **boot cost** ([doc 05 §2](05-testing-platform.md#2-test-categories-and-naming)): unit tests construct plain objects; integration tests boot an in-memory HTTP host (`WebApplicationFactory`) and exercise the real pipeline.
 
 ### 3.1 Projects
 
 ```bash
 dotnet new install xunit.v3.templates    # once per machine
-dotnet new xunit3 -n Theodo.DotnetBoilerplate.Domain.UnitTests -o tests/Domain.UnitTests
-dotnet new xunit3 -n Theodo.DotnetBoilerplate.Api.IntegrationTests -o tests/Api.IntegrationTests
+dotnet new xunit3 -n Theodo.DotnetBoilerplate.UnitTests -o tests/UnitTests
+dotnet new xunit3 -n Theodo.DotnetBoilerplate.IntegrationTests -o tests/IntegrationTests
 dotnet new classlib -n Theodo.DotnetBoilerplate.TestHelpers -o tests/TestHelpers
-dotnet sln add tests/Domain.UnitTests tests/Api.IntegrationTests tests/TestHelpers
+dotnet sln add tests/UnitTests tests/IntegrationTests tests/TestHelpers
 
-dotnet add tests/TestHelpers reference src/Domain
-dotnet add tests/Domain.UnitTests reference src/Domain tests/TestHelpers
-dotnet add tests/Api.IntegrationTests reference src/Api tests/TestHelpers
+dotnet add tests/TestHelpers reference src
+dotnet add tests/UnitTests reference src tests/TestHelpers
+dotnet add tests/IntegrationTests reference src tests/TestHelpers
 
-dotnet add tests/Domain.UnitTests package AwesomeAssertions
-dotnet add tests/Api.IntegrationTests package AwesomeAssertions
-dotnet add tests/Api.IntegrationTests package Microsoft.AspNetCore.Mvc.Testing
+dotnet add tests/UnitTests package AwesomeAssertions
+dotnet add tests/IntegrationTests package AwesomeAssertions
+dotnet add tests/IntegrationTests package Microsoft.AspNetCore.Mvc.Testing
 ```
 
-Read the reference lines again: `Domain.UnitTests` **cannot see** Infrastructure or Api. "Unit tests are only for domain code" ([doc 05 §3](05-testing-platform.md#3-unit-test-scope)) is compile-time physics here, not a convention.
+The whole application is one project, so a unit-test project can technically *see* every type — "unit tests are only for domain code" ([doc 05 §3](05-testing-platform.md#3-unit-test-scope)) is therefore a convention enforced by an **architecture test** (phase 4.5), not by assembly boundaries. Discipline: keep `UnitTests` construction to domain types + fakes only.
 
 ### 3.2 The first fake and unit test
 
@@ -304,7 +298,7 @@ public static class UserFixtures
 }
 ```
 
-`tests/Domain.UnitTests/Features/Users/UseCases/GetUsers/GetUsersUseCaseUnitTests.cs` — note the folder mirrors the production path, the suffix carries the category, and the single `// Act` marker ([doc 05 §9](05-testing-platform.md#9-the-act-pattern)):
+`tests/UnitTests/Features/Users/UseCases/GetUsers/GetUsersUseCaseUnitTests.cs` — note the folder mirrors the production path, the suffix carries the category, and the single `// Act` marker ([doc 05 §9](05-testing-platform.md#9-the-act-pattern)):
 
 ```csharp
 public class GetUsersUseCaseUnitTests
@@ -325,7 +319,7 @@ public class GetUsersUseCaseUnitTests
 
 ### 3.3 The first integration test
 
-`tests/Api.IntegrationTests/Features/Users/GetUsersIntegrationTests.cs` — boots the real pipeline in memory:
+`tests/IntegrationTests/Features/Users/GetUsersIntegrationTests.cs` — boots the real pipeline in memory:
 
 ```csharp
 public class GetUsersIntegrationTests
@@ -358,7 +352,7 @@ Now the payoff of code-first: every gate below immediately confronts the code yo
 
 ### 4.1 Repo-wide build policy
 
-> **Concept primer.** **`Directory.Build.props`** is MSBuild's inheritance mechanism: properties in it apply to *every* project beneath it. Policy lives there so no project can quietly opt out.
+> **Concept primer.** **`Directory.Build.props`** is MSBuild's inheritance mechanism: properties in it apply to *every* project beneath it (the app project and all test projects). Policy lives there so no project can quietly opt out.
 
 `api/Directory.Build.props`:
 
@@ -391,11 +385,11 @@ Now the payoff of code-first: every gate below immediately confronts the code yo
 </Project>
 ```
 
-Then **delete** the now-duplicated properties from every `.csproj` (each shrinks to its SDK line + references + packages) and rebuild. The analyzers will almost certainly flag things in your phase-2/3 code — missing `sealed`, unused usings, naming. **Fix every finding**; this is the "existing code must follow the rules" moment you built this order for. *(Implements [toolchain §2](06-build-toolchain-and-quality-gates.md#2-zero-warning-compilation-and-analyzers).)*
+Then **delete** any now-duplicated properties from the project files (each `.csproj` shrinks to its SDK line + references + packages) and rebuild. The analyzers will almost certainly flag things in your phase-2/3 code — missing `sealed`, unused usings, naming. **Fix every finding**; this is the "existing code must follow the rules" moment you built this order for. *(Implements [toolchain §2](06-build-toolchain-and-quality-gates.md#2-zero-warning-compilation-and-analyzers).)*
 
 ### 4.2 Central package versions + lock files
 
-Create `api/Directory.Packages.props` (`ManagePackageVersionsCentrally=true`), then migrate: move each `Version="…"` out of the csprojs into `<PackageVersion>` items. `dotnet restore` writes `packages.lock.json` per project — commit them.
+Create `api/Directory.Packages.props` (`ManagePackageVersionsCentrally=true`), then migrate: move each `Version="…"` out of the project files into `<PackageVersion>` items. `dotnet restore` writes `packages.lock.json` per project — commit them.
 
 **Tinker:** `dotnet restore --locked-mode` passes; bump any `PackageVersion` and run locked-mode again → it fails. The dependency graph is now a reviewed artifact ([toolchain §4](06-build-toolchain-and-quality-gates.md#4-dependency-integrity-and-vulnerability-gates)).
 
@@ -463,38 +457,33 @@ command -v lefthook >/dev/null 2>&1 && lefthook install || true
 ### 4.4 Analyzer packs + banned APIs
 
 ```bash
-dotnet add src/Domain package SonarAnalyzer.CSharp
-dotnet add src/Infrastructure package SonarAnalyzer.CSharp
-dotnet add src/Api package SonarAnalyzer.CSharp
-dotnet add src/Domain package Microsoft.CodeAnalysis.BannedApiAnalyzers
+dotnet add src package SonarAnalyzer.CSharp
+dotnet add src package Microsoft.CodeAnalysis.BannedApiAnalyzers
 ```
 
-(Analyzer packages are build-time only — mark them `PrivateAssets="all"`.) Fix whatever Sonar finds in existing code. Then ban ambient state in the domain — `api/src/Domain/BannedSymbols.txt`:
+(Analyzer packages are build-time only — mark them `PrivateAssets="all"`.) Fix whatever Sonar finds in existing code.
+
+**A note on scope.** `BannedSymbols.txt` is per-*project*, and the app is one project — so a symbol banned here is banned everywhere, including the adapters that legitimately need clocks and GUIDs. Use the project-wide `BannedSymbols.txt` only for things that are *never* acceptable anywhere (e.g. `System.DateTime.Now` in favor of UTC). The **domain-scoped** determinism rule — "no clocks/GUID/random *in the domain*" — is enforced instead by an ArchUnitNET rule in 4.5. A minimal universal ban:
+
+`api/src/BannedSymbols.txt`:
 
 ```text
-P:System.DateTime.Now;Domain is deterministic - inject ITimeProviderPort
-P:System.DateTime.UtcNow;Domain is deterministic - inject ITimeProviderPort
-P:System.DateTime.Today;Domain is deterministic - inject ITimeProviderPort
-P:System.DateTimeOffset.Now;Domain is deterministic - inject ITimeProviderPort
-P:System.DateTimeOffset.UtcNow;Domain is deterministic - inject ITimeProviderPort
-M:System.Guid.NewGuid;Domain is deterministic - inject IRandomGeneratorPort
-M:System.Random.#ctor;Domain is deterministic - inject IRandomGeneratorPort
+P:System.DateTime.Now;Use ITimeProviderPort in domain, DateTimeOffset.UtcNow in adapters
+P:System.DateTime.Today;Use ITimeProviderPort in domain, DateTimeOffset.UtcNow in adapters
 ```
 
-wired in the Domain csproj: `<AdditionalFiles Include="BannedSymbols.txt" />`.
+wired in `src/Theodo.DotnetBoilerplate.csproj`: `<AdditionalFiles Include="BannedSymbols.txt" />`.
 
-**Tinker:** write `var now = DateTime.Now;` in `GetUsersUseCase` → build error **RS0030** with your own message. The same line in `InMemoryUserRepository` **compiles** — adapters are exactly where clocks belong. *(Implements [toolchain §2.1](06-build-toolchain-and-quality-gates.md#21-analyzer-packs).)*
-
-### 4.5 Architecture tests
+### 4.5 Architecture tests — the layer boundaries
 
 ```bash
 dotnet new xunit3 -n Theodo.DotnetBoilerplate.ArchitectureTests -o tests/ArchitectureTests
 dotnet sln add tests/ArchitectureTests
-dotnet add tests/ArchitectureTests reference src/Domain src/Infrastructure src/Api
+dotnet add tests/ArchitectureTests reference src
 dotnet add tests/ArchitectureTests package TngTech.ArchUnitNET.xUnitV3
 ```
 
-Give each source project an empty `AssemblyMarker.cs` (`public sealed class AssemblyMarker;`) so rules can name assemblies without magic strings, then write the first rules — `tests/ArchitectureTests/HexagonalArchitectureRulesUnitTests.cs`:
+This is where the hexagonal boundaries live (the single project can't enforce them by reference). Add an empty `AssemblyMarker.cs` in `src` (`public sealed class AssemblyMarker;`) so rules can name the assembly, then write the load-bearing rules — `tests/ArchitectureTests/HexagonalArchitectureRulesUnitTests.cs`:
 
 ```csharp
 using ArchUnitNET.Domain;
@@ -505,11 +494,25 @@ using static ArchUnitNET.Fluent.ArchRuleDefinition;
 public class HexagonalArchitectureRulesUnitTests
 {
     private static readonly Architecture Architecture = new ArchLoader()
-        .LoadAssemblies(
-            typeof(Domain.AssemblyMarker).Assembly,
-            typeof(Infrastructure.AssemblyMarker).Assembly,
-            typeof(Api.AssemblyMarker).Assembly)
+        .LoadAssemblies(typeof(Theodo.DotnetBoilerplate.AssemblyMarker).Assembly)
         .Build();
+
+    [Fact]
+    public void Domain_does_not_depend_on_framework_or_adapters() =>
+        Types().That().ResideInNamespace(@".*\.Domain(\.|$)", true)
+            .Should().NotDependOnAny(
+                Types().That().ResideInNamespace("Microsoft.AspNetCore.*", true)
+                    .Or().ResideInNamespace("Microsoft.EntityFrameworkCore.*", true)
+                    .Or().ResideInNamespace(@".*\.Common\.Infra(\.|$)", true)
+                    .Or().ResideInNamespace(@".*\.Api(\.|$)", true))
+            .Because("the domain is the framework-free hexagon")
+            .Check(Architecture);
+
+    [Fact]
+    public void Features_do_not_depend_on_each_other() =>
+        // for each pair of feature namespaces, neither may reference the other's types
+        // (grows automatically as features are added under Features/)
+        FeatureIsolation.Rule().Check(Architecture);
 
     [Fact]
     public void Use_cases_have_exactly_one_public_Handle_method() =>
@@ -520,19 +523,12 @@ public class HexagonalArchitectureRulesUnitTests
                 "have exactly one public method, named Handle",
                 "use cases are one operation each")
             .Check(Architecture);
-
-    [Fact]
-    public void Endpoint_classes_live_in_an_endpoints_folder_matching_their_name() =>
-        Classes().That().ImplementInterface(typeof(Api.Common.Endpoints.IEndpoint))
-            .Should().HaveNameEndingWith("Endpoint")
-            .AndShould().ResideInNamespace(@".*\.Endpoints\..*", true)
-            .Check(Architecture);
 }
 ```
 
-(The fluent API surface evolves — keep the *rule names* and *reasons* aligned with the [inventory](06-build-toolchain-and-quality-gates.md#6-architecture-test-inventory) and adapt the query syntax to the current ArchUnitNET README.) Grow the suite one rule at a time: **every convention you adopt from here on gets its rule the same day.**
+(The fluent API surface evolves — keep the *rule names* and *reasons* aligned with the [inventory](06-build-toolchain-and-quality-gates.md#6-architecture-test-inventory) and adapt the query syntax to the current ArchUnitNET README.) Also add the determinism rule (`DesignRulesUnitTests`: domain namespaces must not call `DateTime.UtcNow`/`Guid.NewGuid`/`new Random()`), the endpoint-convention rules, and the "unit tests only reference domain types" rule promised in phase 3. Grow the suite one rule at a time: **every convention you adopt from here on gets its rule the same day.**
 
-**Tinker:** move `GetUsersEndpoint.cs` into `Features/Users/` directly (out of `Endpoints/GetUsers/`) → the placement rule fails, naming the violation. Move it back. Rename `Handle` to `Execute` → the use-case rule fails. This is [doc 02 §3.2](02-architecture-overview.md#32-architecture-test-tier-fine-grained-rules) biting.
+**Tinker:** add `using Microsoft.EntityFrameworkCore;` and a `DbContext` field to `GetUsersUseCase` → the *domain-purity* arch test fails, naming the rule (it compiles — that's the point of the test tier). Remove it. Add `Guid.NewGuid()` to the use case → the determinism rule fails; the same call in `InMemoryUserRepository` passes. Move `GetUsersEndpoint.cs` out of its `Endpoints/GetUsers/` folder → the endpoint-placement rule fails. This is [doc 02 §3](02-architecture-overview.md#3-dependency-direction-rules) biting.
 
 ### 4.6 Coverage + mutation gates, and `./validate`
 
@@ -546,23 +542,24 @@ cd "$(dirname "$0")/api"
 echo "── format"       && dotnet csharpier check .
 echo "── build"        && dotnet build --configuration Release
 echo "── architecture" && dotnet test tests/ArchitectureTests --no-build --configuration Release
-echo "── unit"         && dotnet test tests/Domain.UnitTests --no-build --configuration Release \
+echo "── unit"         && dotnet test tests/UnitTests --no-build --configuration Release \
                             -- --coverage --coverage-output-format cobertura
-echo "── integration"  && dotnet test tests/Api.IntegrationTests --no-build --configuration Release \
+echo "── integration"  && dotnet test tests/IntegrationTests --no-build --configuration Release \
                             -- --coverage --coverage-output-format cobertura
 
 echo "── coverage gate"
-if grep -q "Theodo.DotnetBoilerplate" DotnetBoilerplate.slnx; then LINE=100; BRANCH=100; MUT=100; else LINE=95; BRANCH=80; MUT=95; fi
+if grep -q "Theodo.DotnetBoilerplate" Theodo.DotnetBoilerplate.slnx; then LINE=100; BRANCH=100; MUT=100; else LINE=95; BRANCH=80; MUT=95; fi
 dotnet reportgenerator \
   -reports:"tests/**/TestResults/**/*.cobertura.xml" -targetdir:artifacts/coverage \
   "-reporttypes:Html;TextSummary" \
   "minimumCoverageThresholds:lineCoverage=$LINE;branchCoverage=$BRANCH"
+# Domain-only gate: same command with classfilters "+*.Domain.*" and a stricter threshold
 
-echo "── mutation"     && dotnet stryker --test-runner mtp --break-at $MUT
+echo "── mutation"     && dotnet stryker --break-at $MUT
 echo "OK"
 ```
 
-Notes: the coverage flags belong to the testing-platform collector (`dotnet test -- --help` lists them); **ReportGenerator is the gate** — it exits non-zero below threshold; the `grep` implements the template-100%/client-baseline switch from [toolchain §3](06-build-toolchain-and-quality-gates.md#3-coverage-and-mutation-thresholds). Add `api/stryker-config.json` pointing at the Domain project with `Domain.UnitTests` as test project, thresholds `{ high: 95, low: 90, break: 95 }`, and keep `--test-runner mtp` — the default runner mis-scores this stack.
+Notes: the coverage flags belong to the testing-platform collector (`dotnet test -- --help` lists them); **ReportGenerator is the gate** — it exits non-zero below threshold, and its `classfilters` scope the Domain-only gate by namespace ([toolchain §3](06-build-toolchain-and-quality-gates.md#3-coverage-and-mutation-thresholds)); the `grep` on the solution name implements the template-100%/client-baseline switch. Add `api/stryker-config.json` targeting the single project, with `test-runner: "mtp"`, `UnitTests` as the test project, `mutate` globs restricting mutation to the domain (`**/Features/**/Domain/**`, `**/Common/Domain/**`, `**/Common/Utils/**`), and thresholds `{ high: 95, low: 90, break: 95 }` — keep the `mtp` runner, the default mis-scores this stack.
 
 **Tinker (the best one):** in `GetUsersUseCaseUnitTests`, delete the assertions but keep the call. Coverage stays **100%** — the line was executed! — but Stryker now reports surviving mutants: it mutated the use case and no test noticed. Restore the assertions, watch the mutants die. You now understand *why* both gates exist ([toolchain §3 primer](06-build-toolchain-and-quality-gates.md#3-coverage-and-mutation-thresholds)).
 
@@ -578,14 +575,42 @@ Each block below hardens the running app; add them to `Program.cs` one commit at
 builder.Services.AddAuthentication().AddJwtBearer();   // token read from cookie: configured with the auth feature
 builder.Services.AddAuthorization(o =>
     o.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
-// pipeline: app.UseAuthentication(); app.UseAuthorization(); before MapEndpoints()
+
+// CORS from configuration, never wildcarded in a deployed env (doc 09 §3)
+builder.Services.AddCors(o => o.AddDefaultPolicy(p => p
+    .WithOrigins(builder.Configuration.GetSection("Security:Cors:AllowedOrigins").Get<string[]>() ?? [])
+    .AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
+// pipeline: app.UseAuthentication(); app.UseAuthorization(); app.UseCors(); before MapEndpoints()
 ```
 
 **Your phase-2 endpoint now returns 401.** That's the scheduled breakage: nothing declared its exposure, so the fallback secured it ([doc 02 §6.1](02-architecture-overview.md#61-authorization-rule)). Resolve it *explicitly*: `.RequireAuthorization()` on `/users` — and since no login exists yet, integration tests authenticate via a test authentication scheme registered in the test factory (`AuthenticationBuilder.AddScheme` with a handler that issues a test principal), while `curl` correctly gets 401 until the authentication feature lands in phase 8. Add the endpoint-authorization architecture rule now (every endpoint declares intent; `/public/` ⇔ `AllowAnonymous`).
 
 ### 5.2 Error contract
 
-`AddProblemDetails()` + the ordered `IExceptionHandler` chain ending in a `CatchAllExceptionHandler` (500, `errors.internal`, full exception logged, nothing internal in the body), plus the `ErrorCode` interface in `Common/ExceptionHandling/`. **Tinker:** throw from the use case → the response is a clean ProblemDetails, the console has the stack trace. *(Implements [doc 09 §7](09-security-observability-and-error-handling.md#7-error-contract).)*
+`AddProblemDetails()` + an ordered `IExceptionHandler` chain. `Common/Api/ExceptionHandling/` holds the `ErrorCode` contract (`public interface ErrorCode { string Code { get; } }`, feature enums implement it) and the terminal handler; feature handlers (phase 8) map their own exceptions and sit ahead of it. Handlers are **mapping tables, not logic** ([doc 09 §7.1](09-security-observability-and-error-handling.md#71-exception-handler-layering)):
+
+```csharp
+// Common/Api/ExceptionHandling/CatchAllExceptionHandler.cs — the terminal handler (registered last)
+internal sealed class CatchAllExceptionHandler(IProblemDetailsService problemDetails,
+    ILogger<CatchAllExceptionHandler> logger) : IExceptionHandler
+{
+    public async ValueTask<bool> TryHandleAsync(HttpContext ctx, Exception ex, CancellationToken ct)
+    {
+        logger.LogError(ex, "Unhandled exception");            // full detail to logs only
+        ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        return await problemDetails.TryWriteAsync(new()
+        {
+            HttpContext = ctx,
+            ProblemDetails = { Title = "errors.internal", Status = 500 },  // stable code; no internals in body
+        });
+    }
+}
+// Program.cs: builder.Services.AddProblemDetails();
+//             builder.Services.AddExceptionHandler<CatchAllExceptionHandler>();  // feature handlers added before it
+//             app.UseExceptionHandler();
+```
+
+A feature handler (phase 8) is the same shape but catches its own exception type, sets the mapped status, and uses its `errors.*` code — with an integration test asserting the exact ProblemDetails JSON. **Tinker:** throw from the use case → the response is a clean ProblemDetails with `title: "errors.internal"`, and the stack trace is in the console only. *(Implements [doc 09 §7](09-security-observability-and-error-handling.md#7-error-contract).)*
 
 ### 5.3 Strict JSON + validated options
 
@@ -595,7 +620,23 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 builder.Services.AddValidation();   // .NET 10 built-in DataAnnotations validation for minimal APIs
 ```
 
-Options records (`Common/Properties/`) bind with `.BindConfiguration(...).ValidateDataAnnotations().ValidateOnStart()` — a missing setting crashes at boot naming the option, never at 3 a.m. downstream. **Tinker:** POST an unknown JSON field to any future endpoint → 400; delete a required config value → the app refuses to start. *(Implements [doc 09 §8.3](09-security-observability-and-error-handling.md#83-openapi-and-serialization).)*
+Options records (`Common/Api/Properties/`) are validated and fail fast at boot:
+
+```csharp
+public sealed class SecurityOptions
+{
+    public const string Section = "Security";
+    [Required] public required JwtOptions Jwt { get; init; }
+    public bool Https { get; init; }
+}
+// Program.cs
+builder.Services.AddOptions<SecurityOptions>()
+    .BindConfiguration(SecurityOptions.Section)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();          // missing/invalid setting → crash at boot, naming the option
+```
+
+**Tinker:** POST an unknown JSON field to any future endpoint → 400; delete a required config value → the app refuses to start with a message naming the missing key (never a 3 a.m. null downstream). *(Implements [doc 09 §8.3](09-security-observability-and-error-handling.md#83-openapi-and-serialization) and the production-override split in [doc 09 §9.1](09-security-observability-and-error-handling.md#91-example-production-overrides).)*
 
 ### 5.4 Health, OpenAPI, telemetry
 
@@ -634,13 +675,13 @@ Three commits, mirroring [doc 10](10-ci-cd-and-governance.md):
 The hexagonal payoff: replace the in-memory adapter **without touching the domain or the endpoint**.
 
 1. Extract the behavioral spec first: abstract `UserRepositoryPortContractTests` in `TestHelpers`; run it against `FakeUserRepository` ([doc 05 §5](05-testing-platform.md#5-port-contract-tests)).
-2. `Infrastructure`: EF Core + Npgsql packages, `UserDbEntity` + `IEntityTypeConfiguration` + `AppDbContext`, first migration (`dotnet ef migrations add`  — **read the generated file**), and the real `UserRepository` adapter mapping entity ↔ domain both ways ([doc 08 §1–2](08-data-persistence-and-migrations.md#1-persistence-boundaries)).
+2. Under `Common/Infra`: EF Core + Npgsql packages, `UserDbEntity` + `IEntityTypeConfiguration` + `AppDbContext`, first migration (`dotnet ef migrations add` — **read the generated file**), and the real `UserRepository` adapter mapping entity ↔ domain both ways ([doc 08 §1–2](08-data-persistence-and-migrations.md#1-persistence-boundaries)).
 3. Run the same contract tests against the real adapter via Testcontainers (`Testcontainers.XunitV3`, image tag read from the compose file); add `[AssertQueryCount]`/`[ExpectedQueries]` via an EF command interceptor; add the schema-drift tests (`Database.HasPendingModelChanges()`); add the destructive-migration CI guard.
 4. Swap the registration in `AddAdapters()`; retire `InMemoryUserRepository` (its spirit lives on as `FakeUserRepository`). `curl /api/users` — same response, new engine.
 
 ### 8.2 First write path: signup
 
-Domain-first, letting each gate teach: `NewUser` value object, `UsernameAlreadyExistsException`, `SignupCommand` + `SignupUseCase` (ports: repository, password encoder, time, random, event publisher — the banned-APIs rule now *forces* the port design) with exhaustive unit tests; unique-constraint translation in the adapter; `Endpoints/Signup/` trio on `/auth/public/signup` (`.AllowAnonymous()` — path convention); `UsersExceptionHandler` mapping to 409/`errors.username_already_exists` + handler tests; `UserSignedUpEvent` through `IEventPublisherPort`.
+Domain-first, letting each gate teach: `NewUser` value object, `UsernameAlreadyExistsException`, `SignupCommand` + `SignupUseCase` (ports: repository, password encoder, time, random, event publisher — the domain determinism rule now *forces* the port design) with exhaustive unit tests; unique-constraint translation in the adapter; `Features/Users/Api/Endpoints/Signup/` trio on `/auth/public/signup` (`.AllowAnonymous()` — path convention); `UsersExceptionHandler` mapping to 409/`errors.username_already_exists` + handler tests; `UserSignedUpEvent` through `IEventPublisherPort`.
 
 ### 8.3 Onward
 

@@ -34,10 +34,10 @@ Test **class** suffixes define the category; architecture tests enforce them:
 | Suffix | Category | Project | Boots |
 |---|---|---|---|
 | `*RulesUnitTests` | architecture rules | `ArchitectureTests` | nothing (assembly analysis) |
-| `*UnitTests` | domain unit tests | `Domain.UnitTests` | nothing (plain constructors + fakes) |
-| `*IntegrationTests` | boundary tests | `Api.IntegrationTests` | partial host / database |
-| `*ApplicationTests` | full application tests | `Api.IntegrationTests` | full host via `Program.cs` |
-| `*FlowApplicationTests` | end-to-end user journeys | `Api.IntegrationTests` | full host |
+| `*UnitTests` | domain unit tests | `UnitTests` | nothing (plain constructors + fakes) |
+| `*IntegrationTests` | boundary tests | `IntegrationTests` | partial host / database |
+| `*ApplicationTests` | full application tests | `IntegrationTests` | full host via `Program.cs` |
+| `*FlowApplicationTests` | end-to-end user journeys | `IntegrationTests` | full host |
 | `*ContractTests` | abstract port contracts | `TestHelpers` (abstract) + concrete per implementation | depends on implementation |
 
 **Execution order:** architecture tests → unit tests → integration/application tests. The `./validate` script and the CI test job run the projects in that order and stop at the first failing stage.
@@ -73,9 +73,9 @@ One specification, many implementations:
 
 ```text
 UserRepositoryPortContractTests        (abstract — the behavioral spec, in TestHelpers)
-├── FakeUserRepositoryContractTests    (runs the spec against the fake, in Domain.UnitTests)
+├── FakeUserRepositoryContractTests    (runs the spec against the fake, in UnitTests)
 └── UserRepositoryContractTests        (runs the spec against the real adapter + database,
-                                        in Api.IntegrationTests)
+                                        in IntegrationTests)
 ```
 
 - The abstract class declares the required behavior of the port (`creating a user with a taken username throws UsernameAlreadyExistsException`).

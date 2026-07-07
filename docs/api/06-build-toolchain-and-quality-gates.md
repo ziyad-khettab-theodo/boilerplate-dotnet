@@ -29,12 +29,12 @@ Quality gates enforce the architecture and coding contracts automatically. Every
 |---|---|---|
 | Built-in .NET analyzers (`latest-all`) | all projects | correctness, performance, API-usage, security basics |
 | `SonarAnalyzer.CSharp` | all projects | bug patterns, code smells, cognitive-complexity limits |
-| `Microsoft.CodeAnalysis.BannedApiAnalyzers` | **Domain only** | bans ambient state — `DateTime.Now/UtcNow/Today`, `DateTimeOffset.Now/UtcNow`, `Guid.NewGuid`, `new Random()` (`BannedSymbols.txt`); domain code must use `ITimeProviderPort` / `IRandomGeneratorPort` |
+| `Microsoft.CodeAnalysis.BannedApiAnalyzers` | whole app | bans APIs that are never acceptable anywhere (e.g. `DateTime.Now`/`Today` in favor of UTC), via `BannedSymbols.txt` (`RS0030`) |
 | Custom analyzers (roadmap) | tests | Act-pattern enforcement (see [Testing Platform §9](05-testing-platform.md#9-the-act-pattern)) |
 
 Severity tuning happens **only** in `.editorconfig`, in review, with a comment explaining why — never inline `#pragma` suppressions without a linked rationale.
 
-**Why banned APIs per project:** the adapters implementing `TimeProvider` and `RandomGenerator` legitimately call the banned members; scoping the ban to `Domain` encodes "the domain is deterministic" exactly, with a compile error (`RS0030`) as enforcement.
+**Domain determinism is scoped, so it lives in an architecture test, not a banned-symbol list.** The adapters implementing `TimeProvider` and `RandomGenerator` legitimately call clocks and `Guid.NewGuid`; a `BannedSymbols.txt` is project-wide and cannot tell domain from adapter in a single project. So "no clocks/GUID/random *in the domain*" is enforced by `DesignRulesUnitTests` (ArchUnitNET), which reasons over namespaces. Universal bans (things wrong everywhere) stay in `BannedSymbols.txt`.
 
 ### 2.2 Formatting: CSharpier Owns Layout
 
@@ -58,12 +58,12 @@ Baseline thresholds (client projects):
 | Mutation score | Domain + Utils | **≥ 95%** |
 | Test strength | Domain + Utils | **≥ 98%** |
 
-**Template profile:** while the projects still carry the `Theodo.DotnetBoilerplate` name prefix, an MSBuild condition raises every threshold to **100%**. Renaming the projects for a client (bootstrap step 1) removes the marker automatically and the baseline above applies — unless the project sets stricter values.
+**Template profile:** while the project and solution still carry the `Theodo.DotnetBoilerplate` name, an MSBuild condition raises every threshold to **100%**. Renaming for a client (bootstrap step 1) removes the marker automatically and the baseline above applies — unless the project sets stricter values.
 
 Mechanics:
 
-- Coverage is collected per test project by the test-platform coverage extension (cobertura format) and gated by **ReportGenerator**, whose `minimumCoverageThresholds` setting exits non-zero below the bar. One Domain-scoped invocation enforces the Domain threshold; one merged invocation enforces the totals and produces the HTML report.
-- Mutation testing runs **Stryker.NET** against the `Domain` project with its unit-test project, using the test-platform runner (`--test-runner mtp`); `thresholds.break` in `stryker-config.json` fails the run below the bar.
+- Coverage is collected per test project by the test-platform coverage extension (cobertura format) and gated by **ReportGenerator**, whose `minimumCoverageThresholds` setting exits non-zero below the bar. One invocation with `classfilters` scoped to the domain namespaces (`+*.Domain.*`) enforces the Domain threshold; one merged invocation enforces the totals and produces the HTML report.
+- Mutation testing runs **Stryker.NET** with the test-platform runner (`--test-runner mtp`); `mutate` globs restrict mutation to the domain folders (`**/Features/**/Domain/**`, `**/Common/Domain/**`, `**/Common/Utils/**`) and `thresholds.break` in `stryker-config.json` fails the run below the bar.
 
 **Why these numbers:** the domain is the product — near-total coverage *and* mutation strength there is the point of hexagonal isolation. Thresholds may only move up; lowering one is an architecture discussion with your tech lead, not a config edit.
 
@@ -106,18 +106,18 @@ All in `tests/ArchitectureTests`, executed before everything else.
 
 | Rule class | Protects |
 |---|---|
-| `HexagonalArchitectureRulesUnitTests` | domain dependency allowlist; feature-slice isolation; fields typed as ports, not adapters; audit-feature exception for integration events |
-| `DesignRulesUnitTests` | no service-locator resolution in business code; no framework attributes on domain types; immutable collection types in domain signatures |
+| `HexagonalArchitectureRulesUnitTests` | domain references only the base library, `System.Collections.Immutable`, `Common/Domain`, `Common/Utils` — no framework, `Api`, or `Infra` namespace; feature-slice isolation; fields typed as ports, not adapters; audit-feature exception for integration events |
+| `DesignRulesUnitTests` | no wall-clock/`Guid.NewGuid`/random access in the domain (use ports); no service-locator resolution in business code; no framework attributes on domain types; immutable collection types in domain signatures |
 | `CodingRulesUnitTests` | no generic `Exception` throw/catch in domain; logger conventions; options types are validated |
 | `NamingConventionRulesUnitTests` (root) | `*Event` ⇔ `IEvent`; exception naming ⇔ inheritance ⇔ placement |
-| `Domain/NamingConventionRulesUnitTests` | ports `I*Port` in `Ports/`; use cases under `UseCases/<name>/`; only `*UseCase|*Command|*Query` there |
+| `Domain/NamingConventionRulesUnitTests` | ports `I*Port` in `Ports/`; use cases under `UseCases/<name>/`; only `*UseCase`, `*Command`, or `*Query` there |
 | `Domain/UseCaseRulesUnitTests` | one public `Handle`, ≤ 1 input parameter |
 | `Api/EndpointConventionRulesUnitTests` | endpoint naming/placement; every endpoint declares authorization; `/public/` ⇔ `AllowAnonymous` |
 | `Api/RequestResponseConventionRulesUnitTests` | request/response record locality, allowed field types, validation attributes on request fields |
 | `Infra/DbEntityRulesUnitTests` | `*DbEntity` naming/placement; nullability declared on every mapped property |
 | `IntegrationEventRulesUnitTests` | integration events under `IntegrationEvents/`, implement `IIntegrationEvent`, restricted field types; listeners consume concrete events |
 | `ExceptionHandlerRulesUnitTests` | every feature with exceptions has one handler + handler test class covering all of them |
-| `TestsNamingConventionRulesUnitTests` | test suffix ⇔ project ⇔ base class coherence; forbidden shortcut helpers |
+| `TestsNamingConventionRulesUnitTests` | test suffix ⇔ project ⇔ base class coherence; `UnitTests` reference only domain types (unit tests are domain-only); forbidden shortcut helpers |
 
 **Why tests and not documentation:** a rule that only lives in prose decays under delivery pressure. These classes *are* the architecture; changing a rule means changing the test and this document together.
 

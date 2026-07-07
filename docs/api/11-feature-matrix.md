@@ -6,19 +6,19 @@ The capability index of the platform: every mechanism, why it matters, where it 
 
 | Capability | Why it matters | Evidence | Status |
 |---|---|---|---|
-| Hexagonal 3-project layout | domain physically cannot depend on frameworks | `api/src/*/…csproj` | Planned |
+| Hexagonal feature-first layout | navigate by feature; layers are folders | `src/Features/`, `src/Common/` | Planned |
 | Architecture rule suite | fine-grained boundaries enforced as failing tests | `tests/ArchitectureTests/` | Planned |
 | Use-case convention (one `Handle`) | one operation per class, framework-free domain | `UseCaseRulesUnitTests.cs` | Planned |
-| REPR endpoints (`IEndpoint`) | one class per route, endpoint-local contracts | `src/Api/Common/Endpoints/` | Planned |
-| Convention DI registration of use cases | zero framework attributes in domain | `src/Api/Common/ServiceRegistration/` | Planned |
+| REPR endpoints (`IEndpoint`) | one class per route, endpoint-local contracts | `src/Common/Api/Endpoints/` | Planned |
+| Convention DI registration of use cases | zero framework attributes in domain | `src/Common/Api/ServiceRegistration/` | Planned |
 | Integration events for cross-feature flow | features stay isolated, contracts explicit | `Domain/…/IntegrationEvents/` | Planned |
 
 ## Security and Authentication
 
 | Capability | Why it matters | Evidence | Status |
 |---|---|---|---|
-| Deny-by-default authorization + `/public/` convention | forgotten config yields secured, auditable surface | `src/Api/Common/Security/` + `EndpointConventionRulesUnitTests` | Planned |
-| JWT in HttpOnly cookies | XSS cannot exfiltrate tokens | `src/Api/Features/Authentication/` | Planned |
+| Deny-by-default authorization + `/public/` convention | forgotten config yields secured, auditable surface | `src/Common/Api/Security/` + `EndpointConventionRulesUnitTests` | Planned |
+| JWT in HttpOnly cookies | XSS cannot exfiltrate tokens | `src/Features/Authentication/` | Planned |
 | Refresh-token rotation with integrity checks | stolen refresh tokens die on reuse | authentication domain service | Planned |
 | Management endpoints behind basic auth | topology/version info never anonymous | `/managementz` pipeline | Planned |
 | CORS hardening via per-env origins | no wildcard in deployed envs | startup validation | Planned |
@@ -27,8 +27,8 @@ The capability index of the platform: every mechanism, why it matters, where it 
 
 | Capability | Why it matters | Evidence | Status |
 |---|---|---|---|
-| Domain model / DbEntity separation | persistence constraints never shape the domain | `Infrastructure/Database/Entities/` | Planned |
-| Migration-owned schema (`ddl` never at runtime) | reviewed, replayable schema history | `Infrastructure/Database/Migrations/` | Planned |
+| Domain model / DbEntity separation | persistence constraints never shape the domain | `src/Common/Infra/Database/Entities/` | Planned |
+| Migration-owned schema (`ddl` never at runtime) | reviewed, replayable schema history | `src/Common/Infra/Database/Migrations/` | Planned |
 | Destructive-migration CI guard + whitelist | destructive SQL is deliberate and audited | CI step + whitelist file | Planned |
 | Schema drift tests | mapping and migrations cannot diverge silently | `DatabaseMigrationIntegrationTests` | Planned |
 | Query-count guardrails | N+1 regressions fail tests | `[AssertQueryCount]` interceptor | Planned |
@@ -38,7 +38,7 @@ The capability index of the platform: every mechanism, why it matters, where it 
 
 | Capability | Why it matters | Evidence | Status |
 |---|---|---|---|
-| ProblemDetails everywhere + stable `errors.*` codes | machine-consumable, contract-stable errors | `src/Api/Common/ExceptionHandling/` | Planned |
+| ProblemDetails everywhere + stable `errors.*` codes | machine-consumable, contract-stable errors | `src/Common/Api/ExceptionHandling/` | Planned |
 | Layered exception handlers (map-only) | every exception has one tested mapping | feature `ExceptionHandlers/` + rules test | Planned |
 | Event-driven logging + audit pipeline | business facts observable, PII-safe audit trail | audit feature + `IAuditSinkPort` | Planned |
 | Structured JSON logs + trace correlation | queryable logs joined to traces via `X-Trace-Id` | logging setup + middleware | Planned |
@@ -46,13 +46,24 @@ The capability index of the platform: every mechanism, why it matters, where it 
 | Local Grafana observability stack | see your own traces while coding | `docker-compose.dependencies.yml` | Planned |
 | SLO defaults + instrumented SLIs | reliability decisions by arithmetic | [doc 09 §8.8](09-security-observability-and-error-handling.md#88-slos-and-error-budgets) | Planned |
 
+## Serialization and Validation
+
+| Capability | Why it matters | Evidence | Status |
+|---|---|---|---|
+| Strict JSON (reject unknown members, no coercion) | malformed input fails fast at the edge | `ConfigureHttpJsonOptions` in `Program.cs` | Planned |
+| Built-in minimal-API validation (DataAnnotations) | request-shape errors → `errors.validation` automatically | `AddValidation()` + request records | Planned |
+| Custom validation attributes | reusable domain-shape checks at the transport edge | `Common/Api/Validation/` | Planned |
+| Code-first OpenAPI + XML-doc comments | the spec never drifts from the endpoints | `AddOpenApi()` + `GenerateDocumentationFile` | Planned |
+
 ## Build, Quality, Supply Chain
 
 | Capability | Why it matters | Evidence | Status |
 |---|---|---|---|
 | Zero-warning build (analyzers `latest-all`) | warnings never accumulate | `Directory.Build.props` | Planned |
 | NRT everywhere, diagnostics as errors | null bugs die at compile time | `Directory.Build.props` | Planned |
-| Banned ambient APIs in Domain | deterministic domain | `BannedSymbols.txt` | Planned |
+| Deterministic domain (no clock/GUID/random) | domain logic is reproducible and unit-testable | `DesignRulesUnitTests` (ArchUnitNET) | Planned |
+| Universal banned APIs | app-wide bans (e.g. `DateTime.Now`) | `BannedSymbols.txt` | Planned |
+| Reviewed CVE suppressions | intentional advisory exceptions are auditable | `NuGetAuditSuppress` entries with reasons | Planned |
 | CSharpier + staged pre-commit hook | zero format drift, zero debate | `lefthook.yml` + `.tools` scripts | Planned |
 | Coverage gates 95/80 (+ Domain 95) | untested code can't merge | ReportGenerator gate in `./validate`/CI | Planned |
 | Mutation gates 95/98 on Domain | tests proven to detect behavior change | `stryker-config.json` | Planned |

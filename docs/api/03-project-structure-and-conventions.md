@@ -2,61 +2,57 @@
 
 This document is the source of truth for where code lives and what it is called. The taxonomy is not cosmetic: architecture tests assert placement and naming, so a misplaced or misnamed type fails the build.
 
+The organizing principle is **feature-first**: you navigate by business capability, and inside each feature you find its hexagonal layers. Shared, cross-feature code lives under `Common`.
+
 ## 1. Repository and Solution Layout
 
 ```text
 /                                  # repository root: docs/, docker compose files, CI, init
 └── api/                           # the REST API component
-    ├── DotnetBoilerplate.slnx     # solution file
+    ├── Theodo.DotnetBoilerplate.slnx
     ├── global.json                # SDK version pin + test runner selection
     ├── Directory.Build.props      # build policies shared by every project
     ├── Directory.Packages.props   # central package version management
     ├── .config/dotnet-tools.json  # pinned local CLI tools
-    ├── src/
-    │   ├── Domain/                # Theodo.DotnetBoilerplate.Domain
-    │   ├── Infrastructure/        # Theodo.DotnetBoilerplate.Infrastructure
-    │   └── Api/                   # Theodo.DotnetBoilerplate.Api (host)
+    ├── src/                       # ONE application project: Theodo.DotnetBoilerplate
+    │   ├── Features/              # one folder per feature (subdomain)
+    │   ├── Common/                # shared kernel: Api, Domain, Infra, Utils
+    │   └── Program.cs             # composition root
     └── tests/
         ├── ArchitectureTests/     # rule suite — runs first
-        ├── Domain.UnitTests/      # references Domain only
-        ├── Api.IntegrationTests/  # boundary + application tests
+        ├── UnitTests/             # domain unit tests
+        ├── IntegrationTests/      # boundary + application tests
         └── TestHelpers/           # shared fakes, fixtures, base classes
 ```
 
-Projects are named with the full root namespace (`Theodo.DotnetBoilerplate.<Project>`); folders use the short segment. Namespaces always match the folder path (`Theodo.DotnetBoilerplate.Domain.Features.Users.UseCases.Signup`), one type per file, file named after the type.
+The application is a **single project** (one assembly): `Features/` and `Common/` are folders, not separate projects. The hexagonal layers are enforced by architecture tests (see [Architecture Overview §3](02-architecture-overview.md#3-dependency-direction-rules)), not by assembly boundaries.
 
-**Why:** predictable placement means any engineer (or tool) can navigate by convention instead of memory; namespace = folder keeps moves honest.
+Namespaces always match the folder path (`Theodo.DotnetBoilerplate.Features.Users.Domain.UseCases.Signup`), one type per file, file named after the type.
+
+**Why one project:** the architecture is defined by the dependency *rules*, not by how many assemblies enforce them. A single project keeps a feature's slice readable in one place and adds no per-feature build ceremony; the rules are enforced uniformly by the architecture-test suite.
 
 **Enforced by:** `tests/ArchitectureTests/NamingConventionRulesUnitTests.cs`; IDE analyzers (namespace-folder mismatch is a build warning, and warnings are errors).
 
-## 2. Domain Project Structure
+## 2. Feature Domain Structure
 
-One folder per feature under `Features/`, plus the shared kernel:
+A feature is a folder under `Features/`; its business core lives in `Domain/`:
 
 ```text
-src/Domain/
-├── Features/
-│   └── <Feature>/                 # e.g. Users, Authentication, Audit
-│       ├── Entities/              # domain objects with identity (records)
-│       ├── ValueObjects/          # immutable values with invariants (records/enums)
-│       ├── Ports/                 # I*Port interfaces the feature needs
-│       ├── UseCases/
-│       │   └── <UseCase>/         # e.g. Signup/
-│       │       ├── <Name>UseCase.cs
-│       │       └── <Name>Command.cs   # or <Name>Query.cs
-│       ├── Events/                # <Name>Event records (facts that happened)
-│       ├── Exceptions/            # feature domain exceptions
-│       ├── Services/              # domain services (shared business behavior)
-│       ├── Properties/            # domain-owned configuration records
-│       └── IntegrationEvents/     # cross-feature contracts (records)
-├── Common/
-│   ├── Events/                    # IEvent, IIntegrationEvent marker interfaces
-│   ├── Exceptions/                # DomainException base type
-│   ├── Pagination/                # PageNumber, PageSize, PageQuery<T>, PageResult<T>…
-│   ├── Ports/                     # shared ports: IEventPublisherPort, ITimeProviderPort,
-│   │                              #   IRandomGeneratorPort, IPasswordEncoderPort
-│   └── ValueObjects/              # shared value objects (e.g. Username, Role)
-└── Utils/                         # generic, domain-agnostic helpers
+src/Features/<subdomain>/            # e.g. Users, Authentication, Audit
+├── Domain/
+│   ├── Entities/                  # domain objects with identity (records)
+│   ├── ValueObjects/              # immutable values with invariants (records/enums)
+│   ├── Ports/                     # I*Port interfaces this feature needs
+│   ├── UseCases/
+│   │   └── <UseCase>/             # e.g. Signup/
+│   │       ├── <Name>UseCase.cs
+│   │       └── <Name>Command.cs   # or <Name>Query.cs
+│   ├── Events/                    # <Name>Event records (facts that happened)
+│   ├── Exceptions/                # feature domain exceptions
+│   ├── Services/                  # domain services (shared business behavior)
+│   └── Properties/                # domain-owned configuration records
+├── Api/                           # see §3
+└── IntegrationEvents/             # cross-feature contracts (records) + publishers
 ```
 
 ### 2.1 Use Cases
@@ -78,7 +74,7 @@ src/Domain/
 ### 2.3 Domain Services
 
 - Business behavior shared by several use cases **within the same feature** (e.g. token-pair creation used by both login and refresh).
-- Not a dumping ground: technical helpers go to `Utils/` or adapters; single-use-case logic stays in the use case.
+- Not a dumping ground: technical helpers go to `Common/Utils` or adapters; single-use-case logic stays in the use case.
 
 ### 2.4 Entities vs. Value Objects
 
@@ -91,7 +87,7 @@ src/Domain/
 
 ### 2.5 Domain Exceptions
 
-- All domain exceptions extend `DomainException` (`Common/Exceptions`), are suffixed `Exception`, live in `Exceptions/`.
+- All domain exceptions extend `DomainException` (`Common/Domain/Exceptions`), are suffixed `Exception`, live in the feature's `Domain/Exceptions/`.
 - Prefer explicit types with structured context (`UsernameAlreadyExistsException(Username username)`) over message-only exceptions.
 
 **Why:** typed exceptions map deterministically to API error codes (see [Security, Observability and Error Handling](09-security-observability-and-error-handling.md#7-error-contract)); structured context makes logs and handlers reliable.
@@ -105,38 +101,29 @@ src/Domain/
 
 ### 2.7 New Use Case Checklist
 
-1. `Features/<Feature>/UseCases/<Name>/<Name>Command.cs` (or `Query`)
-2. `Features/<Feature>/UseCases/<Name>/<Name>UseCase.cs`
-3. New port needed? `Features/<Feature>/Ports/I<Name>Port.cs` + adapter in Infrastructure + fake in `TestHelpers`
-4. Unit tests in `Domain.UnitTests` mirroring the folder path
+1. `Features/<subdomain>/Domain/UseCases/<Name>/<Name>Command.cs` (or `Query`)
+2. `Features/<subdomain>/Domain/UseCases/<Name>/<Name>UseCase.cs`
+3. New port needed? `Features/<subdomain>/Domain/Ports/I<Name>Port.cs` + adapter in `Common/Infra` + fake in `TestHelpers`
+4. Unit tests in `tests/UnitTests` mirroring the folder path
 5. Domain event if other features must react
 
-## 3. Api Project Structure
+## 3. Feature API Structure
+
+The feature's driving-adapter layer lives in `Api/`:
 
 ```text
-src/Api/
-├── Program.cs                     # composition root
-├── Features/
-│   └── <Feature>/
-│       ├── Endpoints/
-│       │   └── <Endpoint>/        # e.g. Signup/
-│       │       ├── <Name>Endpoint.cs
-│       │       ├── <Name>EndpointRequest.cs
-│       │       └── <Name>EndpointResponse.cs
-│       ├── ExceptionHandlers/     # feature exception → status + error code mapping
-│       ├── Schedules/<Name>/      # scheduled tasks (hosted services)
-│       ├── Services/              # API-side shared logic (e.g. cookie composition)
-│       ├── Mappers/               # transport ↔ domain enum/value mapping
-│       ├── Listeners/             # integration-event consumers
-│       └── Publishers/            # domain-event → integration-event publishers
-└── Common/
-    ├── Endpoints/                 # IEndpoint convention + discovery
-    ├── ExceptionHandling/         # handler chain, ErrorCode contract, ProblemDetails
-    ├── Security/                  # authentication setup, fallback policy, policies
-    ├── ServiceRegistration/       # use-case convention registration, adapter bindings
-    ├── Responses/                 # shared response bases (e.g. paged response)
-    ├── Validation/                # custom validation attributes
-    └── Properties/                # API-side options records
+src/Features/<subdomain>/Api/
+├── Endpoints/
+│   └── <Endpoint>/                # e.g. Signup/
+│       ├── <Name>Endpoint.cs
+│       ├── <Name>EndpointRequest.cs
+│       └── <Name>EndpointResponse.cs
+├── ExceptionHandlers/             # feature exception → status + error code mapping
+├── Schedules/<Name>/              # scheduled tasks (hosted services)
+├── Services/                      # API-side shared logic (e.g. cookie composition)
+├── Mappers/                       # transport ↔ domain enum/value mapping
+├── Listeners/                     # integration-event consumers
+└── Publishers/                    # domain-event → integration-event publishers
 ```
 
 ### 3.1 Endpoints
@@ -147,7 +134,7 @@ src/Api/
 
 ### 3.2 Scheduled Tasks
 
-- Time-triggered work lives under `Features/<Feature>/Schedules/<Name>/` as `<Name>ScheduledTask`, delegating to a use case exactly like an endpoint does.
+- Time-triggered work lives under `Features/<subdomain>/Api/Schedules/<Name>/` as `<Name>ScheduledTask`, delegating to a use case exactly like an endpoint does.
 - Group only methods sharing the same dependency set; otherwise split.
 
 **Why:** scheduled tasks are driving adapters — same translation-only rule as endpoints; grouping by dependencies avoids bloated scheduler classes.
@@ -159,63 +146,95 @@ src/Api/
 
 ### 3.4 New Endpoint Checklist
 
-1. `Features/<Feature>/Endpoints/<Name>/<Name>EndpointRequest.cs` — record, validation attributes on every field
+1. `Features/<subdomain>/Api/Endpoints/<Name>/<Name>EndpointRequest.cs` — record, validation attributes on every field
 2. `<Name>EndpointResponse.cs` — record with a `From(<domain type>)` factory
 3. `<Name>Endpoint.cs` — route, explicit authorization, one use-case call
-4. Web integration test in `Api.IntegrationTests` (status, payload, authorization)
+4. Web integration test in `tests/IntegrationTests` (status, payload, authorization)
 5. New exception surfaced? Extend the feature exception handler + its handler tests
 
-## 4. Infrastructure Project Structure
+## 4. Common Modules
+
+Shared, cross-feature code lives under `src/Common/`, split by layer:
 
 ```text
-src/Infrastructure/
-├── Adapters/                      # port implementations (UserRepository, TimeProvider,
-│                                  #   RandomGenerator, EventPublisher, JwtTokenClaimsCodec…)
-├── Database/
-│   ├── AppDbContext.cs
-│   ├── Entities/                  # <Name>DbEntity — mutable persistence classes
-│   ├── EntityConfigurations/      # IEntityTypeConfiguration<T> mappings
-│   └── Logging/                   # query logging, SQL commenting
-├── Configurations/                # technical wiring (interceptors, listeners)
-├── Logging/                       # audit sink, structured log formatting
-├── Mappers/                       # value-object ↔ primitive mapping helpers
-├── Properties/                    # infrastructure options records (e.g. JwtProperties)
-└── Tracing/                       # trace-id helpers
+src/Common/
+├── Api/                           # cross-cutting framework concerns
+│   ├── Endpoints/                 # IEndpoint convention + discovery
+│   ├── ExceptionHandling/         # handler chain, ErrorCode contract, ProblemDetails
+│   ├── Security/                  # authentication setup, fallback policy, policies
+│   ├── ServiceRegistration/       # use-case convention registration, adapter bindings
+│   ├── Responses/                 # shared response bases (e.g. paged response)
+│   ├── Validation/                # custom validation attributes
+│   └── Properties/                # API-side options records
+├── Domain/                        # shared domain abstractions
+│   ├── Events/                    # IEvent, IIntegrationEvent marker interfaces
+│   ├── Exceptions/                # DomainException base type
+│   ├── Pagination/                # PageNumber, PageSize, PageQuery<T>, PageResult<T>…
+│   ├── Ports/                     # IEventPublisherPort, ITimeProviderPort,
+│   │                              #   IRandomGeneratorPort, IPasswordEncoderPort
+│   └── ValueObjects/              # shared value objects (e.g. Username, Role)
+├── Infra/                         # ALL driven adapters + technical config (centralized)
+│   ├── Adapters/                  # port implementations: UserRepository, TimeProvider,
+│   │                              #   RandomGenerator, EventPublisher, JwtTokenClaimsCodec…
+│   ├── Database/
+│   │   ├── AppDbContext.cs
+│   │   ├── Entities/              # <Name>DbEntity — mutable persistence classes
+│   │   ├── EntityConfigurations/  # IEntityTypeConfiguration<T> mappings
+│   │   └── Logging/               # query logging, SQL commenting
+│   ├── Configurations/            # technical wiring (interceptors, listeners)
+│   ├── Logging/                   # audit sink, structured log formatting
+│   ├── Mappers/                   # value-object ↔ primitive mapping helpers
+│   ├── Properties/                # infrastructure options records (e.g. JwtProperties)
+│   └── Tracing/                   # trace-id helpers
+└── Utils/                         # generic, domain-agnostic helpers
 ```
 
+### 4.1 Infrastructure is centralized
+
+Adapters, database entities, and the `DbContext` live under `Common/Infra`, **not** inside each feature. A feature declares its ports in `Features/<subdomain>/Domain/Ports/`; the adapters implementing them sit together in `Common/Infra/Adapters/`.
+
 - Adapters map database entities ↔ domain models **both ways** and translate infrastructure exceptions into domain exceptions. Details in [Data Persistence and Migrations](08-data-persistence-and-migrations.md).
-- Infrastructure is **centralized**: features do not get their own infrastructure folders. A feature's ports are implemented here, next to the other adapters.
 
-**Why centralized:** driven adapters share heavy machinery (DbContext, mapping helpers, logging); centralizing avoids N copies of that machinery and keeps the domain the only per-feature axis. The boundary that matters — domain sees ports only — is unaffected by where adapters sit.
+**Why centralized:** driven adapters share heavy machinery (the `DbContext`, mapping helpers, logging); centralizing avoids N copies of it and keeps the *domain* the only per-feature axis. The boundary that matters — the domain sees only ports — holds regardless of where the adapters sit.
 
-## 5. Common Modules — Responsibilities
+### 4.2 Module Responsibilities
 
 | Module | Owns | Must not contain |
 |---|---|---|
-| `Api/Common` | host composition, security, exception handling, serialization, endpoint conventions | business logic |
-| `Domain/Common` | shared domain abstractions (base exception, events, pagination, shared ports/VOs) | feature business entities |
-| `Domain/Utils` | generic, dependency-light helpers | domain helper logic (that's `Domain/Common`) |
-| `Infrastructure` | all driven adapters + technical config | business decisions; API concerns |
+| `Common/Api` | host composition, security, exception handling, serialization, endpoint conventions | business logic |
+| `Common/Domain` | shared domain abstractions (base exception, events, pagination, shared ports/VOs) | feature business entities |
+| `Common/Infra` | all driven adapters + technical config | business decisions; API concerns |
+| `Common/Utils` | generic, dependency-light helpers | domain helper logic (that's `Common/Domain`) |
+
+## 5. Dependency Rules Summary
+
+- `Features/<subdomain>/Domain` may depend on: the base class library, `System.Collections.Immutable`, `Common/Domain`, `Common/Utils`. Nothing else.
+- `Features/<subdomain>/Api` and `Common/Infra` depend inward on domain (their own feature's and `Common/Domain`).
+- `Common/Domain` may depend on the base library and `Common/Utils` only; it must not contain feature entities.
+- Features must not depend on each other (except `Audit` consuming integration events).
+- Domain code performs no direct I/O and reads no ambient state; all I/O is a port implemented by an adapter.
+
+Enforcement details: [Architecture Overview §3](02-architecture-overview.md#3-dependency-direction-rules).
 
 ## 6. Naming Conventions (summary table)
 
 | Concept | Pattern | Kind | Location |
 |---|---|---|---|
-| Use case | `<Name>UseCase`, one `Handle` | class | `Domain/Features/<F>/UseCases/<Name>/` |
+| Use case | `<Name>UseCase`, one `Handle` | class | `Features/<subdomain>/Domain/UseCases/<Name>/` |
 | Use case input | `<Name>Command` / `<Name>Query` | record | same folder as its use case |
-| Port | `I<Name>Port` | interface | `Domain/…/Ports/` |
-| Adapter | descriptive name, implements a port | class | `Infrastructure/Adapters/` |
-| Endpoint | `<Name>Endpoint` : `IEndpoint` | class | `Api/Features/<F>/Endpoints/<Name>/` |
+| Port | `I<Name>Port` | interface | `Features/<subdomain>/Domain/Ports/` or `Common/Domain/Ports/` |
+| Adapter | descriptive name, implements a port | class | `Common/Infra/Adapters/` |
+| Endpoint | `<Name>Endpoint` : `IEndpoint` | class | `Features/<subdomain>/Api/Endpoints/<Name>/` |
 | Transport models | `<Name>EndpointRequest` / `<Name>EndpointResponse` | record | endpoint's folder |
-| Database entity | `<Name>DbEntity` | mutable class | `Infrastructure/Database/Entities/` |
-| Domain entity | noun (`User`) | record | `Domain/…/Entities/` |
-| Value object | noun (`Username`) | record/enum | `Domain/…/ValueObjects/` |
-| Domain event | `<Fact>Event` : `IEvent`, past tense | record | `Domain/…/Events/` |
-| Integration event | `<Fact>IntegrationEvent` : `IIntegrationEvent` | record | `Domain/…/IntegrationEvents/` |
-| Exception | `<Name>Exception` : `DomainException` | class | `Domain/…/Exceptions/` |
-| Error codes | enum implementing `ErrorCode` | enum | `Api/…/ExceptionHandlers/` |
-| Scheduled task | `<Name>ScheduledTask` | class | `Api/Features/<F>/Schedules/<Name>/` |
-| Mapper | `<Name>Mapper` | class | `Api|Infrastructure/…/Mappers/` |
+| Database entity | `<Name>DbEntity` | mutable class | `Common/Infra/Database/Entities/` |
+| Domain entity | noun (`User`) | record | `Features/<subdomain>/Domain/Entities/` |
+| Value object | noun (`Username`) | record/enum | `Features/<subdomain>/Domain/ValueObjects/` or `Common/Domain/ValueObjects/` |
+| Domain event | `<Fact>Event` : `IEvent`, past tense | record | `Features/<subdomain>/Domain/Events/` |
+| Integration event | `<Fact>IntegrationEvent` : `IIntegrationEvent` | record | `Features/<subdomain>/IntegrationEvents/` |
+| Exception | `<Name>Exception` : `DomainException` | class | `Features/<subdomain>/Domain/Exceptions/` |
+| Error codes | enum implementing `ErrorCode` | enum | `Features/<subdomain>/Api/ExceptionHandlers/` |
+| Scheduled task | `<Name>ScheduledTask` | class | `Features/<subdomain>/Api/Schedules/<Name>/` |
+| Mapper | `<Name>Mapper` | class | `Features/<subdomain>/Api/Mappers/` or `Common/Infra/Mappers/` |
 | Test classes | `*UnitTests`, `*IntegrationTests`, `*ApplicationTests`, `*ContractTests`, `*RulesUnitTests` | class | see [Testing Platform](05-testing-platform.md) |
 
 **Enforced by:** the `NamingConventionRulesUnitTests` classes per area, `UseCaseRulesUnitTests`, `EndpointConventionRulesUnitTests`, `DbEntityRulesUnitTests`.
@@ -225,7 +244,7 @@ src/Infrastructure/
 ✅ Do: create the full folder skeleton for a new feature even if some folders start empty — placement questions answered once.
 ✅ Do: keep one type per file, named identically.
 ❌ Do not: share transport models "for DRY" — duplication at boundaries is cheaper than coupling.
-❌ Do not: expose `*DbEntity` types outside `Infrastructure`.
+❌ Do not: expose `*DbEntity` types outside `Common/Infra`.
 ❌ Do not: put business branches in API services, mappers, or adapters.
 
 ## Navigation

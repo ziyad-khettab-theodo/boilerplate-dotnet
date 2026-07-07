@@ -8,24 +8,9 @@ This is a **rule-driven architecture, not a suggestion-only architecture**: ever
 
 > **Concept primer.** Hexagonal architecture organizes code around one idea: *business logic must not know how the outside world talks to it or how it talks to the outside world.* The business logic lives in the center (the "hexagon", here called the **domain**). The domain declares **ports** — plain interfaces expressing what it needs ("store a user", "get the current time") or offers. **Adapters** on the outside implement those ports for a concrete technology (HTTP, PostgreSQL, JWT, system clock). All dependencies point *inward*: adapters know the domain; the domain never knows the adapters.
 
-```mermaid
-flowchart LR
-    subgraph api["Api project — driving adapters (HTTP in)"]
-        EP["SignupEndpoint"]
-    end
-    subgraph domain["Domain project — the hexagon"]
-        UC["SignupUseCase"]
-        PORT["IUserRepositoryPort<br/>(interface)"]
-        UC --> PORT
-    end
-    subgraph infra["Infrastructure project — driven adapters (I/O out)"]
-        AD["UserRepository (adapter)"]
-        DB[("PostgreSQL")]
-        AD --> DB
-    end
-    EP -- "SignupCommand" --> UC
-    AD -. "implements" .-> PORT
-```
+![Hexagonal architecture: driving adapters on the left, the domain hexagon with use cases and ports in the center, driven adapters to infrastructure on the right](resources/hexagonal_architecture.png)
+
+*Reading the diagram in this project's terms: the left side ("user interface") is our **Api layer** — endpoints and scheduled tasks that drive the domain; the center hexagon is the **Domain layer** — use cases surrounded by ports; the right side is the **Infra layer** — adapters implementing those ports against real technology (database, external services). Every arrow points inward toward the domain.*
 
 Two kinds of adapters exist:
 
@@ -36,52 +21,34 @@ Two kinds of adapters exist:
 
 ## 2. Layer Model
 
-The solution has three source projects. Projects are the *layers*; folders inside them carry the *feature* structure (see [Project Structure and Conventions](03-project-structure-and-conventions.md)).
+The application is a single project, organized **feature-first**: folders carry both the feature and its hexagonal layer (see [Project Structure and Conventions](03-project-structure-and-conventions.md)).
 
 | Layer | Location | Responsibility | Owns I/O? |
 |---|---|---|---|
-| Feature API | `Api` project, `Features/<Feature>/` | HTTP endpoints, scheduled tasks, feature-level API concerns (mapping, exception handlers) | yes |
-| Feature Domain | `Domain` project, `Features/<Feature>/` | use cases, entities, value objects, domain services, feature ports, domain events | no |
-| Common API | `Api` project, `Common/` | host composition (`Program.cs`), security configuration, exception handling, serialization, endpoint conventions | yes |
-| Common Domain | `Domain` project, `Common/` | shared domain abstractions: base exception, event contracts, pagination, shared ports and value objects | no |
-| Infrastructure | `Infrastructure` project | driven adapter implementations, database entities and `DbContext`, technical configuration | yes |
-| Common Utils | `Domain` project, `Utils/` | generic, domain-agnostic utilities | no |
+| Feature API | `Features/<subdomain>/Api/` | HTTP endpoints, scheduled tasks, feature-level API concerns (mapping, exception handlers) | yes |
+| Feature Domain | `Features/<subdomain>/Domain/` | use cases, entities, value objects, domain services, feature ports, domain events | no |
+| Common API | `Common/Api/` | host composition (`Program.cs`), security configuration, exception handling, serialization, endpoint conventions | yes |
+| Common Domain | `Common/Domain/` | shared domain abstractions: base exception, event contracts, pagination, shared ports and value objects | no |
+| Common Infra | `Common/Infra/` | driven adapter implementations, database entities and `DbContext`, technical configuration | yes |
+| Common Utils | `Common/Utils/` | generic, domain-agnostic utilities | no |
 
 The rows with **Owns I/O? = no** are the hexagon. Everything they need from the outside world arrives through a port.
 
 ## 3. Dependency Direction Rules
 
-Dependencies are enforced at two tiers.
+All dependencies point inward, toward the domain. Because the application is a single project, these rules are enforced by **architecture tests** (ArchUnitNET) that run before every other test — the same mechanism a single-module codebase uses to hold its layers apart.
 
-### 3.1 Compile-time tier (project references)
+The rules:
 
-```text
-Api ──────► Domain
-Api ──────► Infrastructure
-Infrastructure ──► Domain
-Domain ───► (nothing)
-```
+- **The domain depends on nothing outward.** `Features/<subdomain>/Domain` may reference only the base class library, `System.Collections.Immutable`, `Common/Domain`, and `Common/Utils`. It must not reference any `Api` or `Infra` namespace, nor any framework namespace (`Microsoft.AspNetCore.*`, `Microsoft.EntityFrameworkCore.*`, DI containers). This is the most load-bearing rule of the architecture.
+- **Adapters depend on ports, not the reverse.** `Common/Infra` and `Features/<subdomain>/Api` depend inward on domain; fields and constructor parameters are typed as the **port interface**, never a concrete adapter.
+- **Features are isolated.** `Features/Users` must not reference `Features/Authentication` types — cross-feature communication goes through integration events. Exception: the `Audit` feature may consume other features' integration events.
+- **The domain reads no ambient state.** No wall-clock access, no random generation, no environment reads — these arrive through `ITimeProviderPort`, `IRandomGeneratorPort`, and configuration-bound properties. This keeps domain logic deterministic and unit-testable.
+- **Naming and placement** follow section 5 and 6, and the full inventory in [Build Toolchain and Quality Gates](06-build-toolchain-and-quality-gates.md#6-architecture-test-inventory).
 
-- The `Domain` project references **no other project and no framework packages**. Its package list is the dependency allowlist: the base class library, `System.Collections.Immutable`, and nothing else. Persistence, HTTP, and DI packages are physically absent, so `using Microsoft.EntityFrameworkCore;` in a use case is a **compile error**, not a code-review debate.
-- `Infrastructure` references `Domain` (to implement its ports). Never the reverse.
-- `Api` references both: it is the composition root that wires ports to adapters at startup.
+**Why architecture tests rather than assembly boundaries:** the architecture is defined by these rules, not by how it is packaged. Encoding them as tests keeps the structure feature-first and readable while making a violation a **failing build** — the rule suite runs first, so a boundary break is the first thing that turns red, before any behavioral test.
 
-**Why:** the most load-bearing rule of the architecture ("the domain depends on nothing") deserves the strongest enforcement tier available. A violation cannot be merged accidentally — it cannot even compile, and adding a forbidden reference requires a visible one-line change to a `.csproj` that reviewers cannot miss.
-
-**Enforced by:** project references in the three `.csproj` files; package hygiene reviewed via `Directory.Packages.props`.
-
-### 3.2 Architecture-test tier (fine-grained rules)
-
-Project references cannot see *inside* a project. Rules at file/namespace/type granularity are enforced by architecture tests (ArchUnitNET) that run before all other tests:
-
-- Feature slices must not depend on each other (`Features/Users` must not reference `Features/Authentication` types) — cross-feature communication goes through integration events. Exception: the `Audit` feature may consume other features' integration events.
-- Domain code must not perform I/O or read ambient state directly: no wall-clock access, no random generation, no environment reads — these arrive through `ITimeProviderPort`, `IRandomGeneratorPort`, configuration-bound properties.
-- Fields and constructor parameters must be typed as the **port interface**, never a concrete adapter.
-- Naming and placement conventions (section 5 and 6, and the full inventory in [Build Toolchain and Quality Gates](06-build-toolchain-and-quality-gates.md#6-architecture-test-inventory)).
-
-**Why:** feature isolation keeps slices independently changeable and deletable; banning ambient state keeps domain logic deterministic and unit-testable.
-
-**Enforced by:** `tests/ArchitectureTests/*RulesUnitTests` classes; ambient-state bans additionally by banned-API analysis at compile time (`BannedSymbols.txt` on the `Domain` project).
+**Enforced by:** `tests/ArchitectureTests/*RulesUnitTests` classes (`HexagonalArchitectureRulesUnitTests`, `DesignRulesUnitTests`, and the feature/naming rule classes).
 
 ## 4. What Belongs in the Domain vs. in Adapters
 
@@ -121,14 +88,14 @@ public class SignupUseCase(
 
 Rules:
 
-- Classes live under `Features/<Feature>/UseCases/<usecase>/`, suffixed `UseCase`.
+- Classes live under `Features/<subdomain>/UseCases/<usecase>/`, suffixed `UseCase`.
 - Exactly **one** public method, named `Handle`, taking at most one input parameter (a `Command` or `Query` record) plus an optional `CancellationToken`.
 - Use cases depend on **ports and domain services**, never on other use cases.
 - Use cases carry **no framework attributes** and implement no framework interfaces — they are plain classes.
 
 **Why:** one operation per class keeps use cases small, individually testable, and prevents "service classes" that accrete unrelated behavior. Banning use-case→use-case calls avoids hidden orchestration chains; shared business behavior belongs in a domain service.
 
-**Enforced by:** `tests/ArchitectureTests/Domain/UseCaseRulesUnitTests.cs` (naming, placement, single `Handle`, parameter count) and the compile-time tier (no framework available to reference).
+**Enforced by:** `tests/ArchitectureTests/Domain/UseCaseRulesUnitTests.cs` (naming, placement, single `Handle`, parameter count) and `HexagonalArchitectureRulesUnitTests.cs` (domain references no framework namespace).
 
 ## 6. Endpoint Contract (REPR)
 
@@ -174,7 +141,7 @@ Authorization is **deny-by-default, declared explicitly, path-signaled**:
 
 **Why:** the two most expensive authorization bugs are the forgotten annotation (solved by deny-by-default) and the unauditable public surface (solved by the path convention).
 
-**Enforced by:** the fallback authorization policy in `src/Api/Common/Security/`; `tests/ArchitectureTests/Api/EndpointConventionRulesUnitTests.cs` walks all mapped endpoints and asserts explicit metadata and the `/public/` ⇔ anonymous equivalence.
+**Enforced by:** the fallback authorization policy in `src/Common/Api/Security/`; `tests/ArchitectureTests/Api/EndpointConventionRulesUnitTests.cs` walks all mapped endpoints and asserts explicit metadata and the `/public/` ⇔ anonymous equivalence.
 
 ## 7. Immutability Contract
 
@@ -192,14 +159,14 @@ Authorization is **deny-by-default, declared explicitly, path-signaled**:
 
 > **Concept primer.** ASP.NET Core has a built-in DI container. Services are registered at startup (`builder.Services.Add…`) and delivered via constructor parameters. There is no annotation scanning by default — registration is explicit code.
 
-- **Use cases register by convention:** a single registration routine scans the `Domain` assembly for classes suffixed `UseCase` and registers them. Use cases therefore carry zero framework attributes and the domain stays framework-agnostic.
+- **Use cases register by convention:** a single registration routine scans the application assembly for classes suffixed `UseCase` (under any `Features/*/Domain/UseCases`) and registers them. Use cases therefore carry zero framework attributes and the domain stays framework-agnostic.
 - **Adapters register explicitly** against their port interface in the composition root: `services.AddSingleton<ITimeProviderPort, TimeProvider>();`. The port→adapter binding is visible in one place.
 - Constructor injection only. No property/field injection, no service locator (`IServiceProvider` resolution inside business code).
 - Configuration binds to validated options types (see [Security, Observability and Error Handling](09-security-observability-and-error-handling.md)); domain code receives plain values or domain-owned property records, never `IConfiguration`.
 
 **Why:** convention registration keeps the domain free of infrastructure concerns while avoiding per-use-case boilerplate; explicit adapter bindings document the architecture in code; constructor injection keeps dependencies visible and testable.
 
-**Enforced by:** the registration routine in `src/Api/Common/ServiceRegistration/`; `tests/ArchitectureTests/DesignRulesUnitTests.cs` (no service-locator usage, no framework attributes on domain types).
+**Enforced by:** the registration routine in `src/Common/Api/ServiceRegistration/`; `tests/ArchitectureTests/DesignRulesUnitTests.cs` (no service-locator usage, no framework attributes on domain types).
 
 ### 8.1 Fast Self-Review Before Opening a PR
 
@@ -214,7 +181,7 @@ Authorization is **deny-by-default, declared explicitly, path-signaled**:
 ✅ **Do**
 
 - Put business behavior in domain use cases and domain services.
-- Inject ports into domain code; implement them in `Infrastructure`.
+- Inject ports into domain code; implement them in `Common/Infra`.
 - Keep transport models local to their endpoint; map explicitly.
 - Put non-domain concerns (serialization, headers, retries, mapping) in adapters or `Common/Api`.
 

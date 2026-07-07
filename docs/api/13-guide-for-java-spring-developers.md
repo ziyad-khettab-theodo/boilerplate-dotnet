@@ -21,7 +21,7 @@ This project is a faithful port of Theodo's Spring Boot boilerplate: same archit
 | `@RestControllerAdvice` | `IExceptionHandler` chain | ordered, map-only handlers |
 | Spring Data JPA / Hibernate | EF Core (`DbContext`) | `DbContext` ≈ `EntityManager` + repository in one |
 | Liquibase changelogs | EF Core Migrations | diff-based generation ≈ `liquibase:diff`, snapshot instead of reference DB |
-| `@Scheduled` | hosted services under `Features/<F>/Schedules/` | |
+| `@Scheduled` | hosted services under `Features/<subdomain>/Schedules/` | |
 | Spring events / `@EventListener` | `IEventPublisherPort` + listener services | same pattern, explicit port |
 | Actuator | health checks + management endpoints (`/managementz`) | same "never anonymous" rule |
 | springdoc / Swagger UI | built-in OpenAPI generation + Scalar UI | code-first either way |
@@ -43,19 +43,17 @@ This project is a faithful port of Theodo's Spring Boot boilerplate: same archit
 
 The architecture is unchanged: hexagonal layers with the same dependency direction; one-operation `*UseCase` classes with a single `Handle`; `I*Port` interfaces implemented by centralized adapters; REPR endpoints with endpoint-local request/response records; the `/public/` path convention; stable `errors.*` ProblemDetails codes; the test taxonomy (`*UnitTests` / `*IntegrationTests` / `*ApplicationTests` / `*ContractTests`), fakes-over-mocks, contract tests, query-count guardrails, the Act pattern; the 95/80/95/98 thresholds with the template-100% profile; the doc system itself. If you knew the Spring boilerplate, every rule you remember still holds — only the enforcement mechanism may differ.
 
-Also deliberately unchanged: **use cases live in the domain** — there is no separate "Application layer" project, even though four-project Clean Architecture templates are common in .NET. The original two-layer domain (entities + use cases together) is simpler and loses nothing.
+Also deliberately unchanged: **use cases live in the domain** — there is no separate "Application layer", even though four-layer Clean Architecture layouts are common in .NET. The reference's two-layer feature (domain + api, infra shared) is simpler and loses nothing; the port keeps it.
 
-## 3. The Two Debated Divergences
+## 3. Structure and Endpoint Style
 
-### 3.1 Single module → three projects
+### 3.1 Single Maven module → single .NET project (faithful)
 
-The Spring boilerplate is a **single Maven module**; every boundary rule lives in ArchUnit. Here the solution has **three projects** (`Domain` / `Infrastructure` / `Api`), and only fine-grained rules stay in ArchUnitNET. Why the change, when Maven has multi-module too?
+The reference is a single Maven module, organized **feature-first**: `features/<subdomain>/{domain,api}`, infrastructure centralized in `common/infra`, every layer boundary enforced by ArchUnit. The .NET port keeps that shape exactly — **one application project**, `Features/<subdomain>/{Domain,Api}` folders, infrastructure centralized in `Common/Infra`, layer boundaries enforced by **ArchUnitNET**. Namespaces map 1:1: `Theodo.DotnetBoilerplate.Features.Users.Domain.UseCases.Signup` ≡ `com.theodo.springboilerplate.features.users.domain.usecases.signup`.
 
-**Tooling grain.** Java's quality stack is *package*-oriented: ArchUnit reasons over packages, PIT targets package globs, PMD scopes by path — a single module loses nothing, while Maven modules cost real friction (parent POMs, reactor builds). .NET's quality stack is *project*-oriented: analyzers, banned-API lists, nullability, Stryker, and package references all attach to a `.csproj`, and projects are nearly free. Each stack follows its own grain to enforce the *same* guarantees at the lowest cost.
+Why not split each layer into its own .NET project — a common .NET habit that would make "domain touches no framework" a compile error? Because that would invert the reference's structure: the layer would become the top-level axis, you'd navigate by layer instead of by feature, and a single feature would smear across projects. The architecture is defined by the dependency *rules*, not by how many assemblies enforce them — so the port keeps the reference's feature-first cohesion and lets ArchUnitNET hold the layers apart, exactly as ArchUnit does on the JVM. (An architecture test that fails the build is the same enforcement strength the reference already trusts.)
 
-**Enforcement tier.** In the single-module world, "domain must not import JPA" is a test someone can weaken under pressure. Here, `Domain` has no framework packages at all: the violating `using` **does not compile**, the IDE never offers the auto-import, and bypassing it requires a one-line `.csproj` diff no reviewer can miss. The most load-bearing rule moved from the weakenable tier to the unbypassable one; ArchUnitNET still covers what project references can't see (feature isolation, naming, use-case shape).
-
-**Cost accepted:** a feature slice spans projects (`Features/Users` exists in both `Domain` and `Api`). The original already accepted non-colocation (adapters centralized in `common/infra`), and namespaces keep the taxonomy identical.
+The one structural thing .NET *does* force: **tests are separate projects** — there is no `src/test` convention. So `ArchitectureTests`, `UnitTests`, `IntegrationTests`, and `TestHelpers` are sibling projects that reference the single application project.
 
 ### 3.2 Controllers → minimal API endpoint classes
 

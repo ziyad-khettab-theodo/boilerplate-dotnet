@@ -8,11 +8,11 @@ Persistence stack: **PostgreSQL**, **EF Core** (Npgsql provider), **EF Core Migr
 
 | Concern | Location |
 |---|---|
-| Database entities | `src/Infrastructure/Database/Entities/<Name>DbEntity.cs` |
-| Mapping configuration | `src/Infrastructure/Database/EntityConfigurations/` (`IEntityTypeConfiguration<T>`) |
-| `AppDbContext` | `src/Infrastructure/Database/` |
-| Domain-facing adapters | `src/Infrastructure/Adapters/` |
-| Migrations | `src/Infrastructure/Database/Migrations/` (generated) |
+| Database entities | `src/Common/Infra/Database/Entities/<Name>DbEntity.cs` |
+| Mapping configuration | `src/Common/Infra/Database/EntityConfigurations/` (`IEntityTypeConfiguration<T>`) |
+| `AppDbContext` | `src/Common/Infra/Database/` |
+| Domain-facing adapters | `src/Common/Infra/Adapters/` |
+| Migrations | `src/Common/Infra/Database/Migrations/` (generated) |
 
 Adapter responsibilities:
 
@@ -22,7 +22,7 @@ Adapter responsibilities:
 
 Boundary rule: **domain code depends on ports, never on the `DbContext` or database entities.** Database entities never cross the Infrastructure boundary; nullability is declared explicitly on every mapped property.
 
-**Why:** the domain stays persistence-ignorant (swappable, unit-testable); exceptions with business meaning get business names; the compile-time tier plus `DbEntityRulesUnitTests` make leaks impossible to merge.
+**Why:** the domain stays persistence-ignorant (swappable, unit-testable); exceptions with business meaning get business names; `HexagonalArchitectureRulesUnitTests` (domain depends on no `Infra` namespace) plus `DbEntityRulesUnitTests` make leaks a failing build.
 
 ## 2. Migration Workflow
 
@@ -57,7 +57,7 @@ Three guarantees, each with a test:
 
 **Why:** ORM mapping and migration scripts are two descriptions of the same schema; these tests catch divergence the day it happens instead of the day it corrupts a deploy.
 
-**Enforced by:** `DatabaseMigrationIntegrationTests` in `Api.IntegrationTests`.
+**Enforced by:** `DatabaseMigrationIntegrationTests` in `IntegrationTests`.
 
 ## 5. Soft Deletes
 

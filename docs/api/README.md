@@ -15,7 +15,7 @@ The two biggest mistakes to avoid: (1) business logic drifting into endpoints/ad
 
 ## Reference Map
 
-**Start here**
+### Start Here
 
 | Doc | What it gives you |
 |---|---|
@@ -23,13 +23,13 @@ The two biggest mistakes to avoid: (1) business logic drifting into endpoints/ad
 | [2 — Architecture Overview](02-architecture-overview.md) | the architectural contract: layers, dependency rules, building blocks |
 | [3 — Project Structure and Conventions](03-project-structure-and-conventions.md) | where everything lives and what it is called |
 
-**Project kickoff**
+### Project Kickoff
 
 | Doc | What it gives you |
 |---|---|
 | [4 — Project Bootstrap Checklist](04-project-bootstrap-checklist.md) | template → production client project |
 
-**Engineering and platform reference**
+### Engineering and Platform Reference
 
 | Doc | What it gives you |
 |---|---|
@@ -40,13 +40,13 @@ The two biggest mistakes to avoid: (1) business logic drifting into endpoints/ad
 | [9 — Security, Observability and Error Handling](09-security-observability-and-error-handling.md) | auth model, error contract, telemetry, SLOs |
 | [10 — CI/CD and Governance](10-ci-cd-and-governance.md) | pipeline topology, branch rules, supply chain |
 
-**Capability index**
+### Full Capability Index
 
 | Doc | What it gives you |
 |---|---|
 | [11 — Feature Matrix](11-feature-matrix.md) | every platform capability: why, where, status |
 
-**Building and migrating**
+### Building and Migrating
 
 | Doc | What it gives you |
 |---|---|
@@ -66,7 +66,7 @@ The two biggest mistakes to avoid: (1) business logic drifting into endpoints/ad
 
 ## Path Legend
 
-- `src/Domain/…`, `src/Infrastructure/…`, `src/Api/…` → under `api/src/`
+- `src/Features/<subdomain>/{Domain,Api}/…`, `src/Common/{Api,Domain,Infra,Utils}/…` → under `api/src/` (one application project)
 - `tests/…` → under `api/tests/`
 - Docs cite target paths; while the platform is under construction, the [Feature Matrix](11-feature-matrix.md) Status column says what exists.
 
