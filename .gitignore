@@ -55,3 +55,11 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Building boilerplate
+references/
+.idea/
+
+# Local machine artifacts
+.DS_Store
+*.DotSettings.user
