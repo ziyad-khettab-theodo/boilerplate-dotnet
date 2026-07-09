@@ -1,3 +1,5 @@
+be concise in your answers, sacrifice clarity for the sake of concision
+
 # AGENTS.md
 
 Style: telegraph; noun phrases ok; drop filler/grammar; min tokens, except for documentation which must be concise but clear and non-ambiguous.

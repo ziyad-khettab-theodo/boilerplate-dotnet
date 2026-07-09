@@ -82,6 +82,22 @@ Authorization got strictly stronger in the move: `@PreAuthorize`-on-every-method
 | String-heavy config keys | options records bound once, validated at startup; business code never touches `IConfiguration` |
 | Runtime classpath surprises | there is no classpath: assembly references are compile-time, and a missing package is a build error, not a `ClassNotFoundException` |
 
+### 5.1 Casing Reference
+
+This table is the Java→C# contrast. The stack-native rules (casing plus type/async/DI idioms, with no JVM framing) are the canonical [C# Language and Async Conventions](14-csharp-language-and-async-conventions.md) — cite that from code, this from a JVM mindset.
+
+The single biggest surface-level shift from Java: **methods and properties are PascalCase regardless of visibility** (`private void Validate()`, not `validate()`). Only locals, parameters, and private fields are camelCase.
+
+| Element | Java | C# | Example |
+|---|---|---|---|
+| Method (any visibility) | camelCase | **PascalCase** | `IsNullOrWhiteSpace`, `Handle` |
+| Property (vs Java getter) | `getValue()` | **PascalCase** | `Value`, `Username` |
+| Class / record / struct / enum | PascalCase | PascalCase | `Username` |
+| Namespace (vs package) | lowercase | **PascalCase** | `Common.Domain` |
+| Public field / constant | camelCase / UPPER | **PascalCase** | `MaxLength` |
+| Private field | camelCase | **`_camelCase`** | `_value` |
+| Parameter / local variable | camelCase | camelCase | `value` |
+
 ## 6. Reading Order for JVM Arrivals
 
 1. This document, then the [Architecture Overview](02-architecture-overview.md) — you'll recognize every rule.
