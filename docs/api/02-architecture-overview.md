@@ -88,7 +88,7 @@ public class SignupUseCase(
 
 Rules:
 
-- Classes live under `Features/<subdomain>/UseCases/<usecase>/`, suffixed `UseCase`.
+- Classes live under `Features/<subdomain>/Domain/UseCases/<usecase>/`, suffixed `UseCase`.
 - Exactly **one** public method, named `Handle`, taking at most one input parameter (a `Command` or `Query` record) plus an optional `CancellationToken`.
 - Use cases depend on **ports and domain services**, never on other use cases.
 - Use cases carry **no framework attributes** and implement no framework interfaces — they are plain classes.

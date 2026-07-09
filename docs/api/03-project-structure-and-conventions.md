@@ -223,7 +223,7 @@ Enforcement details: [Architecture Overview §3](02-architecture-overview.md#3-d
 | Use case | `<Name>UseCase`, one `Handle` | class | `Features/<subdomain>/Domain/UseCases/<Name>/` |
 | Use case input | `<Name>Command` / `<Name>Query` | record | same folder as its use case |
 | Port | `I<Name>Port` | interface | `Features/<subdomain>/Domain/Ports/` or `Common/Domain/Ports/` |
-| Adapter | descriptive name, implements a port | class | `Common/Infra/Adapters/` |
+| Adapter | port name minus the `Port` suffix (`IUserRepositoryPort` → `UserRepository`); when the tech isn't obvious from the port, prefix it (`SpringSecurityPasswordEncoder`) | class | `Common/Infra/Adapters/` |
 | Endpoint | `<Name>Endpoint` : `IEndpoint` | class | `Features/<subdomain>/Api/Endpoints/<Name>/` |
 | Transport models | `<Name>EndpointRequest` / `<Name>EndpointResponse` | record | endpoint's folder |
 | Database entity | `<Name>DbEntity` | mutable class | `Common/Infra/Database/Entities/` |
@@ -232,12 +232,14 @@ Enforcement details: [Architecture Overview §3](02-architecture-overview.md#3-d
 | Domain event | `<Fact>Event` : `IEvent`, past tense | record | `Features/<subdomain>/Domain/Events/` |
 | Integration event | `<Fact>IntegrationEvent` : `IIntegrationEvent` | record | `Features/<subdomain>/IntegrationEvents/` |
 | Exception | `<Name>Exception` : `DomainException` | class | `Features/<subdomain>/Domain/Exceptions/` |
-| Error codes | enum implementing `ErrorCode` | enum | `Features/<subdomain>/Api/ExceptionHandlers/` |
+| Error codes | enum implementing `IErrorCode` | enum | `Features/<subdomain>/Api/ExceptionHandlers/` |
 | Scheduled task | `<Name>ScheduledTask` | class | `Features/<subdomain>/Api/Schedules/<Name>/` |
 | Mapper | `<Name>Mapper` | class | `Features/<subdomain>/Api/Mappers/` or `Common/Infra/Mappers/` |
 | Test classes | `*UnitTests`, `*IntegrationTests`, `*ApplicationTests`, `*ContractTests`, `*RulesUnitTests` | class | see [Testing Platform](05-testing-platform.md) |
 
 **Enforced by:** the `NamingConventionRulesUnitTests` classes per area, `UseCaseRulesUnitTests`, `EndpointConventionRulesUnitTests`, `DbEntityRulesUnitTests`.
+
+This table covers *what things are named and where they live*. For *how the C# is written* — casing, `record`/`sealed`/property idioms, the async rulebook (`Task` vs `await` vs sync, no `async` on interfaces, `CancellationToken`), and DI lifetimes — see [C# Language and Async Conventions](14-csharp-language-and-async-conventions.md).
 
 ## 7. Do / Do Not
 

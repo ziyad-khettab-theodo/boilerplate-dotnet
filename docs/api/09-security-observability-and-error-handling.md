@@ -76,6 +76,22 @@ Feature handlers are **mapping tables, not logic**: exception type → (status, 
 
 Unhandled exceptions additionally publish an `UnhandledExceptionEvent` so logging/alerting observe them uniformly (see 8.1).
 
+### 7.2 Decision: typed exceptions, not Result types
+
+**This project models *all* domain failures — expected and unexpected — as typed `DomainException` subclasses**, mapped to ProblemDetails by the handler chain above. It does **not** use a Result type (`ErrorOr`, `OneOf`, `FluentResults`, `Result<T>`) for expected failures.
+
+**Alternative considered.** The mainstream 2026 counter-pattern splits failures: *expected* business failures (validation, not-found, "username already taken") return a `Result<T>`/`ErrorOr<T>` — failure explicit in the signature — while only *unexpected* failures throw. It makes failure paths visible in the type system and avoids control-flow-by-exception.
+
+**Why exceptions here.**
+
+- One uniform path to the wire: every failure already funnels through the `IExceptionHandler` chain into ProblemDetails. Result types would need a parallel mapping at each endpoint.
+- Explicit failure modeling is already required *without* a Result type: the [failure-reason-enum rule](../../AGENTS-GLOBAL.md) forces each failure exception to carry a stable reason, so failures are still modeled, not stringly-typed.
+- Less ceremony for the target audience (developers and AI agents following one pattern), and it mirrors the reference architecture.
+
+**Cost accepted.** Failure is not visible in method signatures ("invisible control flow"), and exceptions carry a small performance cost on the throw path — acceptable because expected-failure throws are not hot-path.
+
+**Revisit if** a feature accumulates many expected-failure branches per operation (where a Result type reads better), or profiling shows exception-throw cost on a hot path. If adopted, standardize on **one** library (ErrorOr is the pragmatic ASP.NET choice) rather than mixing. Language-level async/exception rules are in [C# Language and Async Conventions §3.5](14-csharp-language-and-async-conventions.md#35-concurrency-and-exceptions).
+
 ## 8. Observability
 
 ### 8.1 Event-Driven Logging and Audit

@@ -39,6 +39,7 @@ The two biggest mistakes to avoid: (1) business logic drifting into endpoints/ad
 | [8 — Data Persistence and Migrations](08-data-persistence-and-migrations.md) | EF Core boundaries, migration workflow, drift guards |
 | [9 — Security, Observability and Error Handling](09-security-observability-and-error-handling.md) | auth model, error contract, telemetry, SLOs |
 | [10 — CI/CD and Governance](10-ci-cd-and-governance.md) | pipeline topology, branch rules, supply chain |
+| [14 — C# Language and Async Conventions](14-csharp-language-and-async-conventions.md) | how the C# is written: casing, record/sealed/property idioms, the async rulebook, DI lifetimes |
 
 ### Full Capability Index
 
